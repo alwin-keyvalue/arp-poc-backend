@@ -8,11 +8,11 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.dependencies import is_duplicate_notification
-from app.email.parser import parse_graph_message
-from app.graph.client import GraphClient
+from app.integrations.microsoft_graph.client.graph_client import GraphClient
+from app.integrations.microsoft_graph.message_parser import parse_graph_message
+from app.integrations.microsoft_graph.repositories.subscription_repository import SubscriptionRepository
+from app.integrations.microsoft_graph.schemas.subscription import WebhookNotificationPayload
 from app.processors.logging_processor import LoggingEmailProcessor
-from app.repositories.subscription_repository import SubscriptionRepository
-from app.schemas.subscription import WebhookNotificationPayload
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,6 @@ class WebhookProcessorService:
         http_client: httpx.AsyncClient,
         email_processor: LoggingEmailProcessor,
     ):
-        self._http = http_client
         self._graph = GraphClient(http_client)
         self._email_processor = email_processor
 

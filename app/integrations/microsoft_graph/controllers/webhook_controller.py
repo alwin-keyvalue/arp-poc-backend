@@ -4,13 +4,16 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, stat
 import httpx
 
 from app.dependencies import get_email_processor, get_http_client, get_request_validation_token
+from app.integrations.microsoft_graph.schemas.subscription import WebhookNotificationPayload
+from app.integrations.microsoft_graph.services.webhook_processor_service import WebhookProcessorService
 from app.processors.logging_processor import LoggingEmailProcessor
-from app.schemas.subscription import WebhookNotificationPayload
-from app.services.webhook_processor_service import WebhookProcessorService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/webhooks/outlook", tags=["webhooks"])
+router = APIRouter(
+    prefix="/api/integrations/microsoft-graph/webhooks/outlook",
+    tags=["microsoft-graph"],
+)
 
 
 def get_webhook_processor_service(

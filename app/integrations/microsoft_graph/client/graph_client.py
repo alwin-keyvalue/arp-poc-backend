@@ -4,8 +4,12 @@ from typing import Any
 
 import httpx
 
-from app.graph.auth import graph_auth
-from app.graph.models import GraphMessage, GraphSubscription, GraphUser
+from app.integrations.microsoft_graph.client.auth import graph_auth
+from app.integrations.microsoft_graph.client.models import (
+    GraphMessage,
+    GraphSubscription,
+    GraphUser,
+)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -58,10 +62,7 @@ class GraphClient:
         return GraphUser.from_graph_response(data)
 
     async def get_message(self, user_id: str, message_id: str) -> GraphMessage:
-        path = (
-            f"/users/{user_id}/messages/{message_id}"
-            f"?$select={MESSAGE_SELECT}"
-        )
+        path = f"/users/{user_id}/messages/{message_id}?$select={MESSAGE_SELECT}"
         data = await self._request("GET", path)
         return GraphMessage.from_graph_response(data)
 

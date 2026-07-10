@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.graph.models import InternetMessageHeader
+from app.email.types import EmailHeader
 
 FORWARD_SUBJECT_RE = re.compile(r"^(fw|fwd|forward)\s*:", re.IGNORECASE)
 REPLY_SUBJECT_RE = re.compile(r"^re\s*:", re.IGNORECASE)
@@ -15,30 +15,14 @@ class EmailClassification:
     is_forwarded: bool = False
 
 
-def get_header_value(
-    headers: list[InternetMessageHeader],
-    name: str,
-) -> str | None:
+def get_header_value(headers: list[EmailHeader], name: str) -> str | None:
     for header in headers:
         if header.name and header.name.lower() == name.lower():
             return header.value.strip() if header.value else None
     return None
 
 
-def normalize_message_id(value: str) -> str:
-    return value.strip().strip("<>")
-
-
-def parse_message_id_list(value: str | None) -> list[str]:
-    if not value:
-        return []
-    matches = re.findall(r"<[^>]+>", value)
-    if matches:
-        return [normalize_message_id(match) for match in matches]
-    return [normalize_message_id(value)]
-
-
-def has_thread_headers(headers: list[InternetMessageHeader]) -> bool:
+def has_thread_headers(headers: list[EmailHeader]) -> bool:
     in_reply_to = get_header_value(headers, "In-Reply-To")
     references = get_header_value(headers, "References")
     return bool(in_reply_to or references)
@@ -66,7 +50,7 @@ def has_reply_body_markers(text: str) -> bool:
 def classify_email(
     *,
     subject: str | None,
-    headers: list[InternetMessageHeader],
+    headers: list[EmailHeader],
     body_text: str,
 ) -> EmailClassification:
     if has_forward_subject(subject):

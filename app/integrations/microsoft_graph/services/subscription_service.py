@@ -8,9 +8,9 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.graph.client import GraphClient
-from app.repositories.subscription_repository import SubscriptionRepository
-from app.schemas.subscription import SubscribedUserResponse
+from app.integrations.microsoft_graph.client.graph_client import GraphClient
+from app.integrations.microsoft_graph.repositories.subscription_repository import SubscriptionRepository
+from app.integrations.microsoft_graph.schemas.subscription import SubscribedUserResponse
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +18,7 @@ MAX_SUBSCRIPTION_MINUTES = 4230
 
 
 class SubscriptionService:
-    def __init__(
-        self,
-        db: Session,
-        graph_client: GraphClient,
-    ):
+    def __init__(self, db: Session, graph_client: GraphClient):
         self._subscriptions = SubscriptionRepository(db)
         self._graph = graph_client
 
@@ -54,7 +50,7 @@ class SubscriptionService:
 
         subscription = await self._graph.create_subscription(
             change_type="created",
-            notification_url=settings.webhook_notification_url,
+            notification_url=settings.microsoft_graph_webhook_url,
             resource=f"/users/{graph_user.id}/mailFolders('inbox')/messages",
             expiration_date_time=self._get_expiration_datetime(),
             client_state=settings.webhook_client_state,

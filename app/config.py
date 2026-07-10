@@ -37,9 +37,9 @@ class Settings:
         self.webhook_client_state = os.getenv("WEBHOOK_CLIENT_STATE", "")
 
     @property
-    def webhook_notification_url(self) -> str:
+    def microsoft_graph_webhook_url(self) -> str:
         base = self.webhook_base_url.rstrip("/")
-        return f"{base}/api/webhooks/outlook"
+        return f"{base}/api/integrations/microsoft-graph/webhooks/outlook"
 
 
 settings = Settings()
