@@ -30,6 +30,13 @@ class Settings:
 
         self.app_name = os.getenv("APP_NAME", "Task Management API")
 
+        self.llm_provider = os.getenv("LLM_PROVIDER", "gemini")
+        self.model = os.getenv("MODEL", "gemini-2.5-flash-lite")
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.llm_timeout = int(os.getenv("TIMEOUT", "60"))
+        self.llm_temperature = float(os.getenv("TEMPERATURE", "0.0"))
+
         self.azure_tenant_id = os.getenv("AZURE_TENANT_ID", "")
         self.azure_client_id = os.getenv("AZURE_CLIENT_ID", "")
         self.azure_client_secret = os.getenv("AZURE_CLIENT_SECRET", "")

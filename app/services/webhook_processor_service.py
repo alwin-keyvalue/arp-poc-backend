@@ -10,22 +10,30 @@ from app.database import SessionLocal
 from app.dependencies import is_duplicate_notification
 from app.email.parser import parse_graph_message
 from app.graph.client import GraphClient
-from app.processors.logging_processor import LoggingEmailProcessor
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.schemas.email_analysis import EmailInput
 from app.schemas.subscription import WebhookNotificationPayload
+from app.services.email_analysis import Analyzer
 
 logger = logging.getLogger(__name__)
+
+_dev_analyze = None
+
+
+def set_dev_analyze(fn) -> None:
+    global _dev_analyze
+    _dev_analyze = fn
 
 
 class WebhookProcessorService:
     def __init__(
         self,
         http_client: httpx.AsyncClient,
-        email_processor: LoggingEmailProcessor,
+        analyzer: Analyzer,
     ):
         self._http = http_client
         self._graph = GraphClient(http_client)
-        self._email_processor = email_processor
+        self._analyzer = analyzer
 
     async def process_notification(self, payload: WebhookNotificationPayload) -> int:
         if not settings.webhook_client_state:
@@ -59,7 +67,11 @@ class WebhookProcessorService:
                         user_email=subscription.user_email,
                         user_id=subscription.user_id,
                     )
-                    await self._email_processor.process(parsed_email, metadata=metadata)
+                    email_input = EmailInput.model_validate(parsed_email.model_dump())
+                    if _dev_analyze is not None:
+                        analysis = await _dev_analyze(self._analyzer, email_input, metadata)
+                    else:
+                        analysis = await self._analyzer.analyze(email_input)
                     processed_count += 1
                     logger.info(
                         "Processed message %s for %s (reply=%s, forwarded=%s)",
@@ -67,6 +79,10 @@ class WebhookProcessorService:
                         subscription.user_email,
                         parsed_email.is_reply,
                         parsed_email.is_forwarded,
+                    )
+                    logger.info(
+                        "Email analysis result: %s",
+                        analysis.model_dump_json(),
                     )
                 except Exception as exc:
                     logger.warning(

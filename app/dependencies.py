@@ -7,9 +7,11 @@ import httpx
 from fastapi import Request
 
 from app.processors.logging_processor import LoggingEmailProcessor
+from app.services.email_analysis import Analyzer, create_analyzer
 
 _http_client: httpx.AsyncClient | None = None
 _email_processor = LoggingEmailProcessor()
+_analyzer: Analyzer | None = None
 _seen_notifications: OrderedDict[tuple[str, str], None] = OrderedDict()
 _MAX_SEEN_NOTIFICATIONS = 1000
 
@@ -30,6 +32,13 @@ async def close_http_client() -> None:
 
 def get_email_processor() -> LoggingEmailProcessor:
     return _email_processor
+
+
+def get_analyzer() -> Analyzer:
+    global _analyzer
+    if _analyzer is None:
+        _analyzer = create_analyzer()
+    return _analyzer
 
 
 def is_duplicate_notification(subscription_id: str, message_id: str) -> bool:
