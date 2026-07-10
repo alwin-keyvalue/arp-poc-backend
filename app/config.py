@@ -29,6 +29,11 @@ class Settings:
             self.database_url = os.getenv("DATABASE_URL", "sqlite:///./app.db")
 
         self.app_name = os.getenv("APP_NAME", "Task Management API")
+        self.cors_origins = [
+            origin.strip()
+            for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+            if origin.strip()
+        ]
 
 
 settings = Settings()
