@@ -30,5 +30,16 @@ class Settings:
 
         self.app_name = os.getenv("APP_NAME", "Task Management API")
 
+        self.azure_tenant_id = os.getenv("AZURE_TENANT_ID", "")
+        self.azure_client_id = os.getenv("AZURE_CLIENT_ID", "")
+        self.azure_client_secret = os.getenv("AZURE_CLIENT_SECRET", "")
+        self.webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
+        self.webhook_client_state = os.getenv("WEBHOOK_CLIENT_STATE", "")
+
+    @property
+    def webhook_notification_url(self) -> str:
+        base = self.webhook_base_url.rstrip("/")
+        return f"{base}/api/webhooks/outlook"
+
 
 settings = Settings()
