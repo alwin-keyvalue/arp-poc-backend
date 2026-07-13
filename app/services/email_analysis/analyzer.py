@@ -10,9 +10,10 @@ from app.schemas.email_analysis import (
     IntentResponse,
     IntentType,
     ReminderPayload,
+    TaskCreatePayload,
+    TaskUpdatePayload,
     to_llm_context,
 )
-from app.schemas.task import TaskCreate, TaskUpdate
 from app.services.email_analysis.llm.factory import create_llm_client
 from app.services.email_analysis.llm_service import LLMService
 from app.services.email_analysis.prompt_builder import extraction_prompt, intent_prompt
@@ -20,17 +21,13 @@ from app.services.email_analysis.prompt_builder import extraction_prompt, intent
 _INTENT_TO_ACTION = {
     IntentType.NEW_TASK: ActionType.CREATE,
     IntentType.FYI_ONLY: ActionType.IGNORE,
-    IntentType.STATUS_UPDATE: ActionType.UPDATE,
-    IntentType.DATE_UPDATE: ActionType.UPDATE,
-    IntentType.REASSIGNMENT: ActionType.UPDATE,
+    IntentType.TASK_UPDATE: ActionType.UPDATE,
     IntentType.REMINDER_FOLLOW_UP: ActionType.REMINDER,
 }
 
 _INTENT_TO_PAYLOAD_MODEL: dict[IntentType, Type[BaseModel]] = {
-    IntentType.NEW_TASK: TaskCreate,
-    IntentType.STATUS_UPDATE: TaskUpdate,
-    IntentType.DATE_UPDATE: TaskUpdate,
-    IntentType.REASSIGNMENT: TaskUpdate,
+    IntentType.NEW_TASK: TaskCreatePayload,
+    IntentType.TASK_UPDATE: TaskUpdatePayload,
     IntentType.REMINDER_FOLLOW_UP: ReminderPayload,
 }
 
