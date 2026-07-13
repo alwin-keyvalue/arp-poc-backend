@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 
 from app.models.task import Task
 from app.repositories.task_repository import TaskRepository
-from app.schemas.email_analysis import ActionType, AnalyzeResponse
+from app.schemas.email_analysis import ActionType, AnalyzeResponse, TaskCreatePayload, TaskUpdatePayload
 from app.schemas.parsed_email import GraphMessageMetadata
 from app.schemas.task import TaskCreate, TaskUpdate
 
@@ -47,20 +47,19 @@ class TaskService:
             return None
 
         if analysis.action == ActionType.CREATE:
-            if not isinstance(analysis.payload, TaskCreate):
+            if not isinstance(analysis.payload, TaskCreatePayload):
                 return None
-            task_data = analysis.payload.model_copy(
-                update={
-                    "source_email_id": metadata.message_id,
-                    "conversation_id": metadata.conversation_id,
-                    "source_user": from_address,
-                    "source_link": metadata.web_link,
-                }
+            task_data = TaskCreate(
+                **analysis.payload.model_dump(),
+                source_email_id=metadata.message_id,
+                conversation_id=metadata.conversation_id,
+                source_user=from_address,
+                source_link=metadata.web_link,
             )
             return self.create_task(task_data)
 
         if analysis.action == ActionType.UPDATE:
-            if not isinstance(analysis.payload, TaskUpdate):
+            if not isinstance(analysis.payload, TaskUpdatePayload):
                 return None
             if not metadata.conversation_id:
                 logger.warning("Cannot update task: missing conversation_id")
@@ -72,6 +71,8 @@ class TaskService:
                     metadata.conversation_id,
                 )
                 return None
-            return self.update_task(task.id, analysis.payload)
+            return self.update_task(
+                task.id, TaskUpdate(**analysis.payload.model_dump(exclude_none=True))
+            )
 
         return None
