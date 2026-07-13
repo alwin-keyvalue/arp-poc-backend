@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Column, Date, DateTime, JSON, String, Text, Uuid
+from sqlalchemy import Column, Date, DateTime, ForeignKey, JSON, String, Text, Uuid
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -33,7 +33,7 @@ class Task(Base):
     conversation_id = Column(String(255), nullable=True)
     source_user = Column(String(255), nullable=True)
     source_link = Column(String(1024), nullable=True)
-    assignee = Column(String(255), nullable=True)
+    assignee_id = Column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=True)
     watchers = Column(JSON, nullable=False, default=list)
     labels = Column(JSON, nullable=False, default=list)
     status = Column(String(50), nullable=False, default=TaskStatus.TO_DO.value)
