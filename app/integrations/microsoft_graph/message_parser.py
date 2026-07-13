@@ -5,7 +5,7 @@ from app.email.classification import classify_email
 from app.email.html_to_text import html_to_text
 from app.email.recipients import format_email_date, normalize_address
 from app.email.types import EmailHeader
-from app.integrations.microsoft_graph.client.models import GraphMessage, Recipient
+from app.integrations.microsoft_graph.models import GraphMessage, Recipient
 from app.schemas.parsed_email import GraphMessageMetadata, ParsedEmailInput
 
 

@@ -5,17 +5,11 @@ import httpx
 
 from app.database import get_db
 from app.dependencies import get_http_client
-from app.integrations.microsoft_graph.schemas.subscription import (
-    SubscribeUserCreate,
-    SubscribedUserResponse,
-)
-from app.integrations.microsoft_graph.services.subscription_service import (
-    SubscriptionService,
-    build_subscription_service,
-)
+from app.schemas.subscription import SubscribeUserCreate, SubscribedUserResponse
+from app.services.subscription_service import SubscriptionService, build_subscription_service
 
 router = APIRouter(
-    prefix="/api/integrations/microsoft-graph/subscriptions",
+    prefix="/api/microsoft-graph/subscriptions",
     tags=["microsoft-graph"],
 )
 

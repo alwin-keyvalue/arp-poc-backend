@@ -39,7 +39,7 @@ class Settings:
     @property
     def microsoft_graph_webhook_url(self) -> str:
         base = self.webhook_base_url.rstrip("/")
-        return f"{base}/api/integrations/microsoft-graph/webhooks/outlook"
+        return f"{base}/api/microsoft-graph/webhooks/outlook"
 
 
 settings = Settings()

@@ -8,9 +8,9 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.integrations.microsoft_graph.client.graph_client import GraphClient
-from app.integrations.microsoft_graph.repositories.subscription_repository import SubscriptionRepository
-from app.integrations.microsoft_graph.schemas.subscription import SubscribedUserResponse
+from app.integrations.microsoft_graph.client import GraphClient
+from app.repositories.subscription_repository import SubscriptionRepository
+from app.schemas.subscription import SubscribedUserResponse
 
 logger = logging.getLogger(__name__)
 

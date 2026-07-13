@@ -4,12 +4,8 @@ from typing import Any
 
 import httpx
 
-from app.integrations.microsoft_graph.client.auth import graph_auth
-from app.integrations.microsoft_graph.client.models import (
-    GraphMessage,
-    GraphSubscription,
-    GraphUser,
-)
+from app.integrations.microsoft_graph.auth import graph_auth
+from app.integrations.microsoft_graph.models import GraphMessage, GraphSubscription, GraphUser
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
