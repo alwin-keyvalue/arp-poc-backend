@@ -41,8 +41,8 @@ class WebhookProcessorService:
                     continue
 
                 subscription = subscription_repo.get_by_id(item.subscription_id)
-                if not subscription:
-                    logger.warning("Unknown subscription id: %s", item.subscription_id)
+                if not subscription or not subscription.user or subscription.user.is_deleted:
+                    logger.warning("Unknown or deleted subscription id: %s", item.subscription_id)
                     continue
 
                 message_id = item.resource.split("/")[-1]
@@ -51,18 +51,21 @@ class WebhookProcessorService:
                     continue
 
                 try:
-                    message = await self._graph.get_message(subscription.user_id, message_id)
+                    message = await self._graph.get_message(
+                        subscription.graph_user_id,
+                        message_id,
+                    )
                     parsed_email, metadata = parse_graph_message(
                         message,
-                        user_email=subscription.user_email,
-                        user_id=subscription.user_id,
+                        user_email=subscription.user.email,
+                        user_id=str(subscription.user_id),
                     )
                     await self._email_processor.process(parsed_email, metadata=metadata)
                     processed_count += 1
                     logger.info(
                         "Processed message %s for %s (reply=%s, forwarded=%s)",
                         message_id,
-                        subscription.user_email,
+                        subscription.user.email,
                         parsed_email.is_reply,
                         parsed_email.is_forwarded,
                     )
@@ -70,7 +73,7 @@ class WebhookProcessorService:
                     logger.warning(
                         "Failed to fetch or parse message %s for user %s: %s",
                         message_id,
-                        subscription.user_id,
+                        subscription.graph_user_id,
                         exc,
                     )
 

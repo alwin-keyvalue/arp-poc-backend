@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -9,14 +10,13 @@ class SubscribeUserCreate(BaseModel):
 
 class SubscribedUserResponse(BaseModel):
     id: str
+    user_id: UUID
     user_email: str
-    user_id: str
     display_name: str | None
+    graph_user_id: str
     resource: str
     expiration_datetime: datetime
     created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
 class WebhookNotificationItem(BaseModel):
