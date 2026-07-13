@@ -17,8 +17,8 @@ class TaskBase(BaseModel):
     assignee: Optional[str] = None
     watchers: List[str] = []
     labels: List[str] = []
-    status: TaskStatus = TaskStatus.DRAFT
-    priority: TaskPriority = TaskPriority.MEDIUM
+    status: TaskStatus = TaskStatus.TO_DO
+    priority: TaskPriority = TaskPriority.P2
     due_date: Optional[date] = None
 
 

@@ -1,11 +1,16 @@
+import logging
 import uuid
-from typing import List
+from typing import List, Optional
 
 from fastapi import HTTPException, status
 
 from app.models.task import Task
 from app.repositories.task_repository import TaskRepository
+from app.schemas.email_analysis import ActionType, AnalyzeResponse
+from app.schemas.parsed_email import GraphMessageMetadata
 from app.schemas.task import TaskCreate, TaskUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class TaskService:
@@ -31,3 +36,42 @@ class TaskService:
     def delete_task(self, task_id: uuid.UUID) -> None:
         task = self.get_task(task_id)
         self.repository.delete(task)
+
+    def apply_analysis(
+        self,
+        analysis: AnalyzeResponse,
+        metadata: GraphMessageMetadata,
+        from_address: Optional[str],
+    ) -> Optional[Task]:
+        if analysis.action == ActionType.IGNORE or analysis.action == ActionType.REMINDER:
+            return None
+
+        if analysis.action == ActionType.CREATE:
+            if not isinstance(analysis.payload, TaskCreate):
+                return None
+            task_data = analysis.payload.model_copy(
+                update={
+                    "source_email_id": metadata.message_id,
+                    "conversation_id": metadata.conversation_id,
+                    "source_user": from_address,
+                    "source_link": metadata.web_link,
+                }
+            )
+            return self.create_task(task_data)
+
+        if analysis.action == ActionType.UPDATE:
+            if not isinstance(analysis.payload, TaskUpdate):
+                return None
+            if not metadata.conversation_id:
+                logger.warning("Cannot update task: missing conversation_id")
+                return None
+            task = self.repository.get_by_conversation_id(metadata.conversation_id)
+            if task is None:
+                logger.warning(
+                    "Cannot update task: no task for conversation_id %s",
+                    metadata.conversation_id,
+                )
+                return None
+            return self.update_task(task.id, analysis.payload)
+
+        return None
