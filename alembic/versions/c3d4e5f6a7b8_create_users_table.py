@@ -1,7 +1,7 @@
 """create users table
 
 Revision ID: c3d4e5f6a7b8
-Revises: 6e8d20cb5aab
+Revises: ef1e5e738c26
 Create Date: 2026-07-13 11:45:00.000000
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "c3d4e5f6a7b8"
-down_revision: Union[str, Sequence[str], None] = "6e8d20cb5aab"
+down_revision: Union[str, Sequence[str], None] = "ef1e5e738c26"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
