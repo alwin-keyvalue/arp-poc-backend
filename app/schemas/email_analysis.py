@@ -1,9 +1,10 @@
 import enum
+from datetime import date
 from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field
 
-from app.schemas.task import TaskCreate, TaskUpdate
+from app.models.task import TaskPriority, TaskStatus
 
 
 # --- Input ---
@@ -14,8 +15,8 @@ class EmailInput(BaseModel):
     date: Optional[str] = None
     is_reply: bool = False
     is_forwarded: bool = False
-    # parent_email_body: Optional[str] = None
-    # forwarded_email_body: Optional[str] = None
+    parent_email_body: Optional[str] = None
+    forwarded_email_body: Optional[str] = None
     subject: Optional[str] = None
     from_address: Optional[str] = None
     to: List[str] = []
@@ -29,8 +30,9 @@ class LLMEmailContext(BaseModel):
     is_reply: bool = False
     is_forwarded: bool = False
     body_text: str
-    # parent_email_body: Optional[str] = None
-    # forwarded_email_body: Optional[str] = None
+    parent_email_body: Optional[str] = None
+    from_address: Optional[str] = None
+    forwarded_email_body: Optional[str] = None
 
 
 def to_llm_context(email: EmailInput) -> LLMEmailContext:
@@ -40,8 +42,9 @@ def to_llm_context(email: EmailInput) -> LLMEmailContext:
         is_reply=email.is_reply,
         is_forwarded=email.is_forwarded,
         body_text=email.body_text,
-        # parent_email_body=email.parent_email_body,
-        # forwarded_email_body=email.forwarded_email_body,
+        parent_email_body=email.parent_email_body,
+        from_address=email.from_address,
+        forwarded_email_body=email.forwarded_email_body,
     )
 
 
@@ -51,9 +54,7 @@ def to_llm_context(email: EmailInput) -> LLMEmailContext:
 class IntentType(str, enum.Enum):
     NEW_TASK = "New task"
     FYI_ONLY = "FYI only"
-    STATUS_UPDATE = "Status update"
-    DATE_UPDATE = "Date update"
-    REASSIGNMENT = "Reassignment"
+    TASK_UPDATE = "Task update"
     REMINDER_FOLLOW_UP = "Reminder/follow-up"
 
 
@@ -75,6 +76,26 @@ class IntentResponse(BaseModel):
 # --- LLM stage 2 payloads ---
 
 
+class TaskCreatePayload(BaseModel):
+    title: str
+    summary: Optional[str] = None
+    assignee: Optional[str] = None
+    watchers: List[str] = []
+    status: TaskStatus = TaskStatus.TO_DO
+    priority: TaskPriority = TaskPriority.P2
+    due_date: Optional[date] = None
+
+
+class TaskUpdatePayload(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    assignee: Optional[str] = None
+    watchers: Optional[List[str]] = None
+    status: Optional[TaskStatus] = None
+    priority: Optional[TaskPriority] = None
+    due_date: Optional[date] = None
+
+
 class ReminderPayload(BaseModel):
     reminder_note: Optional[str] = None
 
@@ -86,4 +107,4 @@ class AnalyzeResponse(BaseModel):
     intent: IntentType
     confidence: float
     action: ActionType
-    payload: Optional[Union[TaskCreate, TaskUpdate, ReminderPayload]] = None
+    payload: Optional[Union[TaskCreatePayload, TaskUpdatePayload, ReminderPayload]] = None

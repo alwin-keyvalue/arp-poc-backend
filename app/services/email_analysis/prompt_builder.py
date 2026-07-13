@@ -7,114 +7,72 @@ def _format_email_context(llm_ctx: LLMEmailContext) -> str:
         parts.append(f"Email date: {llm_ctx.date}")
     if llm_ctx.subject:
         parts.append(f"Subject: {llm_ctx.subject}")
+    if llm_ctx.from_address:
+        parts.append(f"Sender: {llm_ctx.from_address}")
     parts.append(f"Is reply: {llm_ctx.is_reply}")
     parts.append(f"Is forwarded: {llm_ctx.is_forwarded}")
     parts.append(f"Current message:\n{llm_ctx.body_text}")
-    # if llm_ctx.parent_email_body:
-    #     parts.append(f"Parent email content:\n{llm_ctx.parent_email_body}")
-    # if llm_ctx.forwarded_email_body:
-    #     parts.append(f"Forwarded email content:\n{llm_ctx.forwarded_email_body}")
+    if llm_ctx.parent_email_body:
+        parts.append(f"Parent email content:\n{llm_ctx.parent_email_body}")
+    if llm_ctx.forwarded_email_body:
+        parts.append(f"Forwarded email content:\n{llm_ctx.forwarded_email_body}")
     return "\n\n".join(parts)
 
 
-_DUE_DATE_RULES = """## Due Date Rules
+_INTENT_RULES = """## Intents
+- "New task": recipient must act — review, respond, submit, decide, or complete work.
+- "FYI only": informational; no action required from recipient.
+- "Task update": changes an existing task — status, deadline, or assignee.
+- "Reminder/follow-up": nudge about pending work.
 
-Email date is provided for resolving relative deadlines.
-- Always output due dates as ISO 8601 datetime with timezone (e.g. 2026-07-10T18:00:00+00:00).
-- Resolve relative phrases ("tomorrow", "Friday", "EOD", "by tomorrow evening") using Email date.
-- Default times when not specified: morning 09:00, afternoon 14:00, evening 18:00, EOD 17:00.
-- Use the same timezone as Email date when possible.
-- Search current message for deadlines.
-- Return null only when no deadline is stated anywhere."""
+## Decision tree
+If Is reply is true → prefer "Task update" for deadline changes ("by EOD"), @mention reassignments ("@bob please check this"), or status updates ("Done"). Use "New task" only for a clearly separate new request.
+If Is reply is false → "New task" when @mentioned with a request or recipient is asked to act; "FYI only" when nothing is requested.
 
-_INTENT_CONTEXT_RULES = """## Intent definitions
+Examples: "@bob please review" → New task | "Submit by today EOD" (reply) → Task update | "Sharing Q3 results" → FYI only"""
 
-- "New task": The recipient must do something — respond, share thoughts, review, submit, decide, or complete work. Use this when someone is @mentioned or directly asked a question, even if the email mostly shares background or context.
-- "FYI only": Purely informational. No response, review, or deliverable is requested from the recipient.
-- "Status update": Updates progress or status on an existing task (not a new request).
-- "Date update": Only changes a deadline on an existing task.
-- "Reassignment": Reassigns an existing task to someone else.
-- "Reminder/follow-up": Nudges about an existing task or pending action.
-
-## New task vs FYI only (important)
-
-Choose "New task" (not "FYI only") when ANY of these apply:
-- An @mention is paired with a request or question (e.g. "tell me what you think", "please review", "can you handle this")
-- The recipient is asked to respond, opine, review, or take action — even without an explicit deadline
-- Forwarded or shared content comes with a ask directed at the recipient
-
-Choose "FYI only" only when the email shares information and explicitly or clearly requires nothing from the recipient.
-
-Examples:
-- "@nasser Tell me what you think about this analysis" → New task
-- "@bob Please review and share your views on the supply-side implications" → New task
-- "Sharing Q3 results for visibility." → FYI only
-
-## Reply context
-
-- A reply that only changes status is a status update, not new task.
-- A reply that only changes a deadline is a date update, not new task."""
-
-_SANITIZATION_RULES = """## Data Sanitization Rules
-
-When extracting text fields, remove or generalize confidential, PII, financial, legal, HR, and medical content.
-Sanitize: title, summary, reason. Preserve: assignee, watchers, status, priority, all date fields."""
+_FIELD_RULES = """## Field rules
+Signatures: ignore content after "--" (name, title, company). Never use Sender or signature names as assignee.
+assignee: @mentioned or directly asked person in message body, without the "@" prefix (e.g. "bob"); null if uncertain.
+watchers: other @mentions in body without the "@" prefix; exclude assignee.
+priority (default P2): P0 = urgent/ASAP/immediately/critical; P1 = important/soon/this week; P2 = no urgency stated.
+due_date: ISO 8601 with timezone; resolve relative dates from Email date (morning 09:00, afternoon 14:00, evening 18:00, EOD 17:00); null if none stated.
+Sanitize title/summary for confidential/PII content; preserve assignee, watchers, status, priority, dates."""
 
 _EXTRACTION_RULES: dict[IntentType, str] = {
-    IntentType.NEW_TASK: """## New Task Extraction Rules
-
+    IntentType.NEW_TASK: """## Extract
 - title: short, action-oriented
-- summary: exactly two concise sentences
-- assignee: from body_text; null if uncertain
-- watchers: @mentions only from body_text; exclude assignee
-- priority: infer from urgency and wording (P0, P1, P2)
-- status: appropriate initial status (draft, to_do, in_progress, blocked_on_hold, done, dropped, rejected_not_a_task)
-- due_date: ISO 8601 per due date rules above
-- watchers: @mentions in current email content only (not from/to/cc headers).""",
+- summary: two concise sentences
+- status: initial status (to_do unless clearly otherwise)
+- Apply all field rules above.""",
 
-    IntentType.STATUS_UPDATE: """## Status Update Extraction Rules
+    IntentType.TASK_UPDATE: """## Extract changed fields only (null for unchanged)
+- due_date, assignee, watchers, status, title, summary, priority — only when explicitly changed in the message.
+- Apply all field rules above.""",
 
-Extract status and due_date when present.""",
-
-    IntentType.DATE_UPDATE: """## Date Update Extraction Rules
-
-Extract due_date when present.""",
-
-    IntentType.REASSIGNMENT: """## Reassignment Extraction Rules
-
-Extract assignee from the email.""",
-
-    IntentType.REMINDER_FOLLOW_UP: """## Reminder/Follow-up Extraction Rules
-
-Extract reminder_note when the email is a reminder or follow-up.
-Do not parse or resolve dates from the message — include any mentioned dates as plain text in reminder_note.""",
-
+    IntentType.REMINDER_FOLLOW_UP: """## Extract
+- reminder_note: summarize the nudge; include any dates as plain text (do not resolve them).""",
 }
 
 
 def intent_prompt(llm_ctx: LLMEmailContext) -> tuple[str, str]:
     intent_values = ", ".join(f'"{i.value}"' for i in IntentType)
     system = f"""You are an email intent classifier for a task management system.
-Classify the email into exactly one of these intents: {intent_values}.
+Classify into exactly one intent: {intent_values}.
 
-{_INTENT_CONTEXT_RULES}
+{_INTENT_RULES}
 
-Return the intent and a confidence score between 0.0 and 1.0."""
+Return intent and confidence (0.0–1.0)."""
     return system, _format_email_context(llm_ctx)
 
 
 def extraction_prompt(intent: IntentType, llm_ctx: LLMEmailContext) -> tuple[str, str]:
-    due_date_section = ""
-    if intent != IntentType.REMINDER_FOLLOW_UP:
-        due_date_section = f"\n{_DUE_DATE_RULES}\n"
+    field_rules = f"\n{_FIELD_RULES}\n" if intent != IntentType.REMINDER_FOLLOW_UP else ""
 
     system = f"""You are an email task field extractor for a task management system.
+Classified intent: {intent.value}
 
-The email has been classified as: {intent.value}
-
-Extract structured fields from the email content.
-{due_date_section}
-{_EXTRACTION_RULES[intent]}
-
-{_SANITIZATION_RULES}"""
+Extract structured fields from the email.
+{field_rules}
+{_EXTRACTION_RULES[intent]}"""
     return system, _format_email_context(llm_ctx)
