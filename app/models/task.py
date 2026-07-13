@@ -8,20 +8,19 @@ from app.database import Base
 
 
 class TaskStatus(str, enum.Enum):
-    DRAFT = "draft"
+    # DRAFT = "draft"
     TO_DO = "to_do"
-    IN_PROGRESS = "in_progress"
-    BLOCKED_ON_HOLD = "blocked_on_hold"
+    # IN_PROGRESS = "in_progress"
+    # BLOCKED_ON_HOLD = "blocked_on_hold"
     DONE = "done"
     DROPPED = "dropped"
-    REJECTED_NOT_A_TASK = "rejected_not_a_task"
+    # REJECTED_NOT_A_TASK = "rejected_not_a_task"
 
 
 class TaskPriority(str, enum.Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
 
 
 class Task(Base):
@@ -37,8 +36,8 @@ class Task(Base):
     assignee_id = Column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=True)
     watchers = Column(JSON, nullable=False, default=list)
     labels = Column(JSON, nullable=False, default=list)
-    status = Column(String(50), nullable=False, default=TaskStatus.DRAFT.value)
-    priority = Column(String(50), nullable=False, default=TaskPriority.MEDIUM.value)
+    status = Column(String(50), nullable=False, default=TaskStatus.TO_DO.value)
+    priority = Column(String(50), nullable=False, default=TaskPriority.P2.value)
     due_date = Column(Date, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     last_update = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
