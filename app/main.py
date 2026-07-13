@@ -47,11 +47,8 @@ app.include_router(task_router)
 app.include_router(user_router)
 app.include_router(subscription_router)
 app.include_router(webhook_router)
-<<<<<<< Updated upstream
 app.include_router(dev_router)  # dev only — remove before production
-=======
 app.include_router(bot_router)
->>>>>>> Stashed changes
 
 
 @app.get("/health")
