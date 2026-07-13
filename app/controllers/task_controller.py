@@ -8,18 +8,22 @@ from app.database import get_db
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
+from app.services.bot_service import BotService, get_bot_service
 from app.services.task_service import TaskService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
-def get_task_service(db: Session = Depends(get_db)) -> TaskService:
-    return TaskService(TaskRepository(db), UserRepository(db))
+def get_task_service(
+    db: Session = Depends(get_db),
+    bot_service: BotService = Depends(get_bot_service),
+) -> TaskService:
+    return TaskService(TaskRepository(db), UserRepository(db), bot_service)
 
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
-def create_task(task_data: TaskCreate, service: TaskService = Depends(get_task_service)):
-    return service.create_task(task_data)
+async def create_task(task_data: TaskCreate, service: TaskService = Depends(get_task_service)):
+    return await service.create_task(task_data)
 
 
 @router.get("", response_model=List[TaskResponse])
