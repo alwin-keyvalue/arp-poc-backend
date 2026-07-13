@@ -5,6 +5,7 @@ from urllib.parse import quote
 
 import httpx
 
+from app.email.message_ids import discovery_message_ids, normalize_message_id
 from app.integrations.microsoft_graph.auth import graph_auth
 from app.integrations.microsoft_graph.models import GraphMessage, GraphSubscription, GraphUser
 
@@ -71,6 +72,27 @@ class GraphClient:
         data = await self._request("GET", path)
         return GraphMessage.from_graph_response(data)
 
+    async def get_message_by_internet_message_id(
+        self,
+        user_id: str,
+        internet_message_id: str,
+    ) -> GraphMessage | None:
+        # Graph stores Message-IDs with angle brackets; one lookup is enough.
+        candidate = normalize_message_id(internet_message_id)
+        escaped = _escape_odata_string(candidate)
+        filter_expr = quote(f"internetMessageId eq '{escaped}'", safe="")
+        path = (
+            f"/users/{user_id}/messages"
+            f"?$filter={filter_expr}"
+            f"&$top=1"
+            f"&$select={MESSAGE_SELECT}"
+        )
+        data = await self._request("GET", path)
+        values = data.get("value") or []
+        if values:
+            return GraphMessage.from_graph_response(values[0])
+        return None
+
     async def get_conversation_messages(
         self,
         user_id: str,
@@ -103,6 +125,81 @@ class GraphClient:
 
         messages.sort(key=lambda m: m.received_date_time or "")
         return messages
+
+    async def get_related_thread_messages(
+        self,
+        user_id: str,
+        seed: GraphMessage,
+        *,
+        max_messages: int = 200,
+        preloaded: list[GraphMessage] | None = None,
+    ) -> list[GraphMessage]:
+        """
+        Load related history with few Graph calls.
+
+        1) Fetch seed conversationId first (covers same-conversation replies/fwds).
+        2) Only look up In-Reply-To / root References Message-IDs that are missing
+           from that conversation — to catch Outlook split-conversation cases.
+        3) Fetch any newly discovered conversationIds once.
+        """
+        by_graph_id: dict[str, GraphMessage] = {seed.id: seed}
+        for message in preloaded or []:
+            by_graph_id[message.id] = message
+
+        conversation_ids: set[str] = set()
+        if seed.conversation_id:
+            conversation_ids.add(seed.conversation_id)
+        for message in by_graph_id.values():
+            if message.conversation_id:
+                conversation_ids.add(message.conversation_id)
+
+        fetched_conversation_ids: set[str] = set()
+        if preloaded is not None and seed.conversation_id:
+            # Caller already loaded this conversation.
+            fetched_conversation_ids.add(seed.conversation_id)
+
+        async def _fetch_pending_conversations() -> None:
+            for conversation_id in list(conversation_ids - fetched_conversation_ids):
+                fetched_conversation_ids.add(conversation_id)
+                for message in await self.get_conversation_messages(
+                    user_id,
+                    conversation_id,
+                    max_messages=max_messages,
+                ):
+                    by_graph_id[message.id] = message
+                    if message.conversation_id:
+                        conversation_ids.add(message.conversation_id)
+
+        await _fetch_pending_conversations()
+
+        known_internet_ids = {
+            normalize_message_id(message.internet_message_id)
+            for message in by_graph_id.values()
+            if message.internet_message_id
+        }
+
+        # Prefer headers from the newest message — usually the richest References.
+        newest = max(
+            by_graph_id.values(),
+            key=lambda m: m.received_date_time or m.sent_date_time or "",
+        )
+        for message_id in discovery_message_ids(newest) | discovery_message_ids(seed):
+            if message_id in known_internet_ids:
+                continue
+            found = await self.get_message_by_internet_message_id(user_id, message_id)
+            if not found:
+                continue
+            by_graph_id[found.id] = found
+            if found.internet_message_id:
+                known_internet_ids.add(normalize_message_id(found.internet_message_id))
+            if found.conversation_id:
+                conversation_ids.add(found.conversation_id)
+
+        await _fetch_pending_conversations()
+
+        messages = list(by_graph_id.values())
+        messages.sort(key=lambda m: m.received_date_time or m.sent_date_time or "")
+        return messages[:max_messages]
 
     async def create_subscription(
         self,

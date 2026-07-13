@@ -31,7 +31,8 @@ async def get_conversation_messages(
     service: ConversationService = Depends(get_conversation_service),
 ):
     """
-    Given any message's conversationId (e.g. from a new reply), return the full
-    thread: original email first, then every reply/forward in that mailbox.
+    Given any message's conversationId, return the full related history:
+    original email plus replies/forwards, including cases where Outlook
+    assigned a different conversationId to a reply.
     """
     return await service.get_conversation_messages(email, conversation_id)

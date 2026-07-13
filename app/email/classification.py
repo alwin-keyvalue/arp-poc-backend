@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import Enum
 
 from app.email.types import EmailHeader
 
@@ -9,10 +10,23 @@ FORWARD_SUBJECT_RE = re.compile(r"^(fw|fwd|forward)\s*:", re.IGNORECASE)
 REPLY_SUBJECT_RE = re.compile(r"^re\s*:", re.IGNORECASE)
 
 
+class EmailKind(str, Enum):
+    ORIGINAL = "original"
+    REPLY = "reply"
+    FORWARDED = "forwarded"
+
+
 @dataclass
 class EmailClassification:
-    is_reply: bool = False
-    is_forwarded: bool = False
+    kind: EmailKind = EmailKind.ORIGINAL
+
+    @property
+    def is_reply(self) -> bool:
+        return self.kind == EmailKind.REPLY
+
+    @property
+    def is_forwarded(self) -> bool:
+        return self.kind == EmailKind.FORWARDED
 
 
 def get_header_value(headers: list[EmailHeader], name: str) -> str | None:
@@ -54,11 +68,13 @@ def classify_email(
     body_text: str,
 ) -> EmailClassification:
     if has_forward_subject(subject):
-        return EmailClassification(is_reply=False, is_forwarded=True)
+        return EmailClassification(kind=EmailKind.FORWARDED)
 
-    is_reply = (
+    if (
         has_thread_headers(headers)
         or has_reply_subject(subject)
         or has_reply_body_markers(body_text)
-    )
-    return EmailClassification(is_reply=is_reply, is_forwarded=False)
+    ):
+        return EmailClassification(kind=EmailKind.REPLY)
+
+    return EmailClassification(kind=EmailKind.ORIGINAL)

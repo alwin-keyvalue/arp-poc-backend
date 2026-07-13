@@ -3,8 +3,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 import httpx
 
-from app.dependencies import get_email_processor, get_http_client, get_request_validation_token
-from app.processors.logging_processor import LoggingEmailProcessor
+from app.dependencies import get_http_client, get_request_validation_token
 from app.schemas.subscription import WebhookNotificationPayload
 from app.services.webhook_processor_service import WebhookProcessorService
 
@@ -18,9 +17,8 @@ router = APIRouter(
 
 def get_webhook_processor_service(
     http_client: httpx.AsyncClient = Depends(get_http_client),
-    email_processor: LoggingEmailProcessor = Depends(get_email_processor),
 ) -> WebhookProcessorService:
-    return WebhookProcessorService(http_client, email_processor)
+    return WebhookProcessorService(http_client)
 
 
 @router.get("")
@@ -29,7 +27,6 @@ async def validate_webhook_get(
     validation_token: str | None = None,
 ):
     token = validation_token or get_request_validation_token(request)
-    logger.info("GET webhook received with validation token present=%s", bool(token))
     return _respond_to_validation(token)
 
 
@@ -46,11 +43,8 @@ async def validate_or_receive_webhook(
     if not isinstance(body, dict):
         body = {}
 
-    logger.info("POST webhook received")
-
     validation_token = get_request_validation_token(request, body)
     if validation_token:
-        logger.info("Validation token request received")
         return _respond_to_validation(validation_token)
 
     payload = WebhookNotificationPayload.model_validate(body)
