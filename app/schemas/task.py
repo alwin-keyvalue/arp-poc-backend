@@ -14,7 +14,7 @@ class TaskBase(BaseModel):
     conversation_id: Optional[str] = None
     source_user: Optional[str] = None
     source_link: Optional[str] = None
-    assignee_id: Optional[uuid.UUID] = None
+    assignee: Optional[str] = None
     watchers: List[str] = []
     labels: List[str] = []
     status: TaskStatus = TaskStatus.DRAFT
@@ -33,7 +33,7 @@ class TaskUpdate(BaseModel):
     conversation_id: Optional[str] = None
     source_user: Optional[str] = None
     source_link: Optional[str] = None
-    assignee_id: Optional[uuid.UUID] = None
+    assignee: Optional[str] = None
     watchers: Optional[List[str]] = None
     labels: Optional[List[str]] = None
     status: Optional[TaskStatus] = None
