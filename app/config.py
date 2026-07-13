@@ -29,6 +29,11 @@ class Settings:
             self.database_url = os.getenv("DATABASE_URL", "sqlite:///./app.db")
 
         self.app_name = os.getenv("APP_NAME", "Task Management API")
+        self.cors_origins = [
+            origin.strip()
+            for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+            if origin.strip()
+        ]
 
         self.azure_tenant_id = os.getenv("AZURE_TENANT_ID", "")
         self.azure_client_id = os.getenv("AZURE_CLIENT_ID", "")
