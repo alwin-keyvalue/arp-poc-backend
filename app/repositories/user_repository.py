@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -10,38 +10,51 @@ class UserRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_email(self, email: str, *, include_deleted: bool = False) -> Optional[User]:
-        query = self.db.query(User).filter(User.email == email.lower())
-        if not include_deleted:
-            query = query.filter(User.is_deleted.is_(False))
-        return query.first()
-
-    def get_by_id(self, user_id: uuid.UUID) -> Optional[User]:
-        return self.db.query(User).filter(User.id == user_id, User.is_deleted.is_(False)).first()
-
-    def get_or_create(
+    def create(
         self,
         *,
         email: str,
         display_name: str | None = None,
+        zone: str | None = None,
     ) -> User:
-        normalized_email = email.strip().lower()
-        existing = self.get_by_email(normalized_email, include_deleted=True)
-        if existing:
-            if existing.is_deleted:
-                existing.is_deleted = False
-            if display_name and existing.display_name != display_name:
-                existing.display_name = display_name
-            self.db.commit()
-            self.db.refresh(existing)
-            return existing
-
         user = User(
-            email=normalized_email,
+            email=email.strip().lower(),
             display_name=display_name,
+            zone=zone,
             is_deleted=False,
         )
         self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def get_by_email(self, email: str, *, include_deleted: bool = False) -> Optional[User]:
+        query = self.db.query(User).filter(User.email == email.strip().lower())
+        if not include_deleted:
+            query = query.filter(User.is_deleted.is_(False))
+        return query.first()
+
+    def get_by_id(self, user_id: uuid.UUID, *, include_deleted: bool = False) -> Optional[User]:
+        query = self.db.query(User).filter(User.id == user_id)
+        if not include_deleted:
+            query = query.filter(User.is_deleted.is_(False))
+        return query.first()
+
+    def get_all(self, skip: int = 0, limit: int = 100) -> List[User]:
+        return (
+            self.db.query(User)
+            .filter(User.is_deleted.is_(False))
+            .order_by(User.created_at)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    def update(self, user: User, *, display_name: str | None = None, zone: str | None = None) -> User:
+        if display_name is not None:
+            user.display_name = display_name
+        if zone is not None:
+            user.zone = zone
         self.db.commit()
         self.db.refresh(user)
         return user

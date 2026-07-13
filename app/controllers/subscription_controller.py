@@ -21,12 +21,12 @@ def get_subscription_service(
     return build_subscription_service(db, http_client)
 
 
-@router.get("/users", response_model=list[SubscribedUserResponse])
-def list_subscribed_users(service: SubscriptionService = Depends(get_subscription_service)):
-    return service.list_subscribed_users()
+@router.get("", response_model=list[SubscribedUserResponse])
+def list_subscriptions(service: SubscriptionService = Depends(get_subscription_service)):
+    return service.list_subscriptions()
 
 
-@router.post("/users", response_model=SubscribedUserResponse)
+@router.post("", response_model=SubscribedUserResponse)
 async def subscribe_user(
     body: SubscribeUserCreate,
     service: SubscriptionService = Depends(get_subscription_service),
@@ -34,9 +34,9 @@ async def subscribe_user(
     return await service.subscribe_user(body.email)
 
 
-@router.delete("/users/{email}")
-def remove_subscribed_user(email: str, service: SubscriptionService = Depends(get_subscription_service)):
-    return service.remove_subscribed_user(email)
+@router.delete("/{email}")
+def unsubscribe_user(email: str, service: SubscriptionService = Depends(get_subscription_service)):
+    return service.unsubscribe_user(email)
 
 
 @router.post("/renew", response_model=list[SubscribedUserResponse])

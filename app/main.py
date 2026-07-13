@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.controllers.subscription_controller import router as subscription_router
 from app.controllers.task_controller import router as task_router
+from app.controllers.user_controller import router as user_router
 from app.controllers.webhook_controller import router as webhook_router
 from app.dependencies import close_http_client
 
@@ -24,6 +25,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 app.include_router(task_router)
+app.include_router(user_router)
 app.include_router(subscription_router)
 app.include_router(webhook_router)
 

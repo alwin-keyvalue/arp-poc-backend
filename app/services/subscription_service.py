@@ -25,11 +25,18 @@ class SubscriptionService:
         self._subscriptions = SubscriptionRepository(db)
         self._graph = graph_client
 
-    def list_subscribed_users(self) -> list[SubscribedUserResponse]:
+    def list_subscriptions(self) -> list[SubscribedUserResponse]:
         return [self._to_response(record) for record in self._subscriptions.get_all()]
 
     async def subscribe_user(self, email: str) -> SubscribedUserResponse:
-        existing = self._subscriptions.get_by_email(email)
+        user = self._users.get_by_email(email)
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User {email} not found. Create the user first via POST /api/users.",
+            )
+
+        existing = self._subscriptions.get_by_user_id(user.id)
         if existing:
             return self._to_response(existing)
 
@@ -41,17 +48,9 @@ class SubscriptionService:
                 detail="WEBHOOK_BASE_URL is not configured. Use ngrok for local dev.",
             )
 
-        graph_user = await self._graph.get_user_by_email(email)
-        resolved_email = graph_user.mail or graph_user.user_principal_name or email
-
-        user = self._users.get_or_create(
-            email=resolved_email,
-            display_name=graph_user.display_name,
-        )
-
-        existing = self._subscriptions.get_by_user_id(user.id)
-        if existing:
-            return self._to_response(existing)
+        graph_user = await self._graph.get_user_by_email(user.email)
+        if not user.display_name and graph_user.display_name:
+            self._users.update(user, display_name=graph_user.display_name)
 
         subscription = await self._graph.create_subscription(
             change_type="created",
@@ -72,12 +71,12 @@ class SubscriptionService:
         )
         return self._to_response(record)
 
-    def remove_subscribed_user(self, email: str) -> dict[str, str]:
+    def unsubscribe_user(self, email: str) -> dict[str, str]:
         record = self._subscriptions.get_by_email(email)
         if not record:
-            raise HTTPException(status_code=404, detail=f"User {email} is not subscribed.")
+            raise HTTPException(status_code=404, detail=f"No subscription found for {email}.")
         self._subscriptions.delete(record)
-        return {"removed": email}
+        return {"unsubscribed": email}
 
     def _get_expiration_datetime(self) -> str:
         expires = datetime.now(timezone.utc) + timedelta(minutes=MAX_SUBSCRIPTION_MINUTES)
