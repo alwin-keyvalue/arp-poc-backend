@@ -7,7 +7,7 @@ from alembic import context
 
 from app.config import settings
 from app.database import Base, quote_ident
-from app.models import graph_subscription, task, user  # noqa: F401
+from app.models import graph_subscription, task, task_status_history, user  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

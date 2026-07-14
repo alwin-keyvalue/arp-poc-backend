@@ -18,19 +18,28 @@ class TaskRepository:
         self.db.refresh(task)
         return task
 
-    def get_by_id(self, task_id: uuid.UUID) -> Optional[Task]:
-        return self.db.query(Task).filter(Task.id == task_id).first()
+    def get_by_id(self, task_id: uuid.UUID, *, include_deleted: bool = False) -> Optional[Task]:
+        query = self.db.query(Task).filter(Task.id == task_id)
+        if not include_deleted:
+            query = query.filter(Task.is_deleted.is_(False))
+        return query.first()
 
     def get_by_conversation_id(self, conversation_id: str) -> Optional[Task]:
         return (
             self.db.query(Task)
-            .filter(Task.conversation_id == conversation_id)
+            .filter(Task.conversation_id == conversation_id, Task.is_deleted.is_(False))
             .order_by(Task.last_update.desc())
             .first()
         )
 
     def get_all(self, skip: int = 0, limit: int = 100) -> List[Task]:
-        return self.db.query(Task).offset(skip).limit(limit).all()
+        return (
+            self.db.query(Task)
+            .filter(Task.is_deleted.is_(False))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
 
     def update(self, task: Task, task_data: TaskUpdate) -> Task:
         for field, value in task_data.model_dump(exclude_unset=True).items():
@@ -39,6 +48,7 @@ class TaskRepository:
         self.db.refresh(task)
         return task
 
-    def delete(self, task: Task) -> None:
-        self.db.delete(task)
+    def soft_delete(self, task: Task) -> None:
+        task.is_deleted = True
         self.db.commit()
+        self.db.refresh(task)

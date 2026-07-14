@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, JSON, String, Text, Uuid
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, JSON, String, Text, Uuid
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -39,5 +39,6 @@ class Task(Base):
     status = Column(String(50), nullable=False, default=TaskStatus.TO_DO.value)
     priority = Column(String(50), nullable=False, default=TaskPriority.P2.value)
     due_date = Column(Date, nullable=True)
+    is_deleted = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     last_update = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
