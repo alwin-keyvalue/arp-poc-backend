@@ -14,8 +14,12 @@ class Settings:
         self.db_user = os.getenv("DB_USER")
         self.db_password = os.getenv("DB_PASSWORD")
         self.db_sslmode = os.getenv("DB_SSLMODE", "require")
+        self.db_schema = os.getenv("DB_SCHEMA")
 
         if self.db_host:
+            query = {"sslmode": self.db_sslmode}
+            if self.db_schema:
+                query["options"] = f"-csearch_path={self.db_schema}"
             self.database_url = URL.create(
                 drivername="postgresql+psycopg2",
                 username=self.db_user,
@@ -23,7 +27,7 @@ class Settings:
                 host=self.db_host,
                 port=int(self.db_port),
                 database=self.db_name,
-                query={"sslmode": self.db_sslmode},
+                query=query,
             ).render_as_string(hide_password=False)
         else:
             self.database_url = os.getenv("DATABASE_URL", "sqlite:///./app.db")
