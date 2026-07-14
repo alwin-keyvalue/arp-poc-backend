@@ -47,3 +47,17 @@ class TaskResponse(TaskBase):
     id: uuid.UUID
     created_at: datetime
     last_update: datetime
+
+
+class TaskStatusHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    task_id: uuid.UUID
+    task_title: str
+    from_status: Optional[str] = None
+    to_status: str
+    source: str
+    changed_by_oid: Optional[str] = None
+    changed_by_name: Optional[str] = None
+    changed_at: datetime

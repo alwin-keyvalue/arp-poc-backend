@@ -11,6 +11,7 @@ from app.integrations.microsoft_graph.client import GraphClient
 from app.integrations.microsoft_graph.message_parser import parse_graph_message
 from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import EmailInput
 from app.schemas.subscription import WebhookNotificationPayload
@@ -45,7 +46,9 @@ class WebhookProcessorService:
         db = SessionLocal()
         try:
             subscription_repo = SubscriptionRepository(db)
-            task_service = TaskService(TaskRepository(db), UserRepository(db), get_bot_service())
+            task_service = TaskService(
+                TaskRepository(db), UserRepository(db), get_bot_service(), TaskStatusHistoryRepository(db)
+            )
             processed_count = 0
 
             for item in payload.value:

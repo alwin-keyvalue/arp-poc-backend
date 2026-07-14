@@ -14,6 +14,7 @@ from app.core.graph_client import get_user_email
 from app.models.task import Task, TaskStatus
 from app.models.user import User
 from app.repositories.task_repository import TaskRepository
+from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.task import TaskUpdate
 
@@ -108,7 +109,8 @@ class BotService:
         )
         logger.info("Stored Teams conversation reference for %s", email)
 
-    async def _handle_task_card_action(self, value: Dict[str, Any], turn_context: TurnContext, db: Session) -> None:
+    async def _handle_task_card_action(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
+        value = activity.value
         task_action = value.get("taskAction")
         try:
             task_id = uuid.UUID(str(value.get("taskId")))
@@ -122,6 +124,7 @@ class BotService:
             await turn_context.send_activity("⚠️ That task no longer exists.")
             return
 
+        previous_status = task.status
         if task_action == "complete":
             task = repository.update(task, TaskUpdate(status=TaskStatus.DONE))
             confirmation = "✅ Marked as done"
@@ -132,6 +135,16 @@ class BotService:
             logger.warning("Unknown task card action: %s", task_action)
             return
 
+        if task.status != previous_status:
+            TaskStatusHistoryRepository(db).record(
+                task=task,
+                from_status=previous_status,
+                to_status=task.status,
+                source="teams_bot",
+                changed_by_oid=activity.from_property.aad_object_id if activity.from_property else None,
+                changed_by_name=activity.from_property.name if activity.from_property else None,
+            )
+
         card = CardFactory.adaptive_card(_build_task_action_result_card(task, confirmation))
         await turn_context.send_activity(MessageFactory.attachment(card))
 
@@ -139,7 +152,7 @@ class BotService:
         logger.info("Teams activity received: %s", activity.serialize())
 
         if activity.type == "message" and isinstance(activity.value, dict) and activity.value.get("verb") == TASK_ACTION_VERB:
-            await self._handle_task_card_action(activity.value, turn_context, db)
+            await self._handle_task_card_action(activity, turn_context, db)
             return
 
         if activity.type == "conversationUpdate" and self._bot_was_added(activity):
