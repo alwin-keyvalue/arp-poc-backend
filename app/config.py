@@ -52,6 +52,11 @@ class Settings:
         self.azure_client_secret = os.getenv("AZURE_CLIENT_SECRET", "")
         self.webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
         self.webhook_client_state = os.getenv("WEBHOOK_CLIENT_STATE", "")
+        # Hours before expiry when renew should act. Unset/empty = renew all.
+        renew_within = os.getenv("SUBSCRIPTION_RENEW_WITHIN_HOURS", "").strip()
+        self.subscription_renew_within_hours: int | None = (
+            int(renew_within) if renew_within else None
+        )
 
     @property
     def microsoft_graph_webhook_url(self) -> str:

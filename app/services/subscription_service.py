@@ -113,6 +113,20 @@ class SubscriptionService:
 
     async def renew_all(self) -> list[SubscribedUserResponse]:
         subscriptions = self._subscriptions.get_all()
+        threshold_hours = settings.subscription_renew_within_hours
+        if threshold_hours is not None:
+            cutoff = datetime.now(timezone.utc) + timedelta(hours=threshold_hours)
+            subscriptions = [
+                record
+                for record in subscriptions
+                if self._expiration_as_utc(record.expiration_datetime) <= cutoff
+            ]
+            logger.info(
+                "Renewing %s subscription(s) expiring within %s hour(s)",
+                len(subscriptions),
+                threshold_hours,
+            )
+
         expiration_date_time = self._get_expiration_datetime()
         results = []
         for record in subscriptions:
@@ -123,6 +137,12 @@ class SubscriptionService:
             updated = self._subscriptions.update_expiration(record, expiration)
             results.append(self._to_response(updated))
         return results
+
+    @staticmethod
+    def _expiration_as_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     @staticmethod
     def _resource_matches_folder(resource: str, folder: str) -> bool:
