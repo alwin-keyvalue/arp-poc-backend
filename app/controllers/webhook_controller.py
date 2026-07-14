@@ -1,3 +1,4 @@
+import json
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
@@ -48,6 +49,8 @@ async def validate_or_receive_webhook(
     if not isinstance(body, dict):
         logger.warning("Webhook request body was not a JSON object (got %s); treating as empty", type(body).__name__)
         body = {}
+
+    logger.info("Webhook payload: %s", json.dumps(body))
 
     validation_token = get_request_validation_token(request, body)
     if validation_token:
