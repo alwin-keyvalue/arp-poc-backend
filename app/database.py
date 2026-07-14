@@ -26,7 +26,9 @@ if settings.db_schema and not settings.database_url.startswith("sqlite"):
     @event.listens_for(engine, "connect")
     def _set_search_path(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
+        cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(settings.db_schema)}")
         cursor.execute(f"SET search_path TO {quote_ident(settings.db_schema)}")
+        dbapi_connection.commit()
         cursor.close()
 
 

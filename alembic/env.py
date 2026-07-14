@@ -51,6 +51,7 @@ def run_migrations_offline() -> None:
 
     with context.begin_transaction():
         if settings.db_schema:
+            context.execute(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(settings.db_schema)}")
             context.execute(f"SET search_path TO {quote_ident(settings.db_schema)}")
         context.run_migrations()
 
@@ -70,7 +71,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         if settings.db_schema:
+            connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(settings.db_schema)}"))
             connection.execute(text(f"SET search_path TO {quote_ident(settings.db_schema)}"))
+            connection.commit()
 
         context.configure(
             connection=connection, target_metadata=target_metadata
