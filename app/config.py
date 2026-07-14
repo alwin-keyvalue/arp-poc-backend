@@ -35,6 +35,9 @@ class Settings:
             for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
             if origin.strip()
         ]
+        self.bot_app_id = os.getenv("BOT_APP_ID")
+        self.bot_app_password = os.getenv("BOT_APP_PASSWORD")
+        self.bot_app_tenant_id = os.getenv("BOT_APP_TENANT_ID")
 
         self.llm_provider = os.getenv("LLM_PROVIDER", "gemini")
         self.model = os.getenv("MODEL", "gemini-2.5-flash-lite")

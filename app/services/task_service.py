@@ -10,14 +10,16 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import ActionType, AnalyzeResponse, TaskCreatePayload, TaskUpdatePayload
 from app.schemas.parsed_email import ParsedEmailInput
 from app.schemas.task import TaskCreate, TaskUpdate
+from app.services.bot_service import BotService
 
 logger = logging.getLogger(__name__)
 
 
 class TaskService:
-    def __init__(self, repository: TaskRepository, user_repository: UserRepository):
+    def __init__(self, repository: TaskRepository, user_repository: UserRepository, bot_service: BotService):
         self.repository = repository
         self.user_repository = user_repository
+        self.bot_service = bot_service
 
     def _validate_assignee(self, assignee_id: Optional[uuid.UUID]) -> None:
         if assignee_id is None:
@@ -25,9 +27,14 @@ class TaskService:
         if self.user_repository.get_by_id(assignee_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee not found")
 
-    def create_task(self, task_data: TaskCreate) -> Task:
+    async def create_task(self, task_data: TaskCreate) -> Task:
         self._validate_assignee(task_data.assignee_id)
-        return self.repository.create(task_data)
+        task = self.repository.create(task_data)
+        if task.assignee_id:
+            assignee = self.user_repository.get_by_id(task.assignee_id)
+            if assignee:
+                await self.bot_service.notify_task_assigned(assignee, task)
+        return task
 
     def get_task(self, task_id: uuid.UUID) -> Task:
         task = self.repository.get_by_id(task_id)
@@ -47,7 +54,7 @@ class TaskService:
         task = self.get_task(task_id)
         self.repository.delete(task)
 
-    def apply_analysis(
+    async def apply_analysis(
         self,
         analysis: AnalyzeResponse,
         metadata: ParsedEmailInput,
@@ -66,7 +73,7 @@ class TaskService:
                 source_user=from_address,
                 source_link=metadata.web_link,
             )
-            return self.create_task(task_data)
+            return await self.create_task(task_data)
 
         if analysis.action == ActionType.UPDATE:
             if not isinstance(analysis.payload, TaskUpdatePayload):
