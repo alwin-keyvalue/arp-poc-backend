@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.repositories.task_repository import TaskRepository
+from app.repositories.user_repository import UserRepository
 from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
 from app.services.task_service import TaskService
 
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
 def get_task_service(db: Session = Depends(get_db)) -> TaskService:
-    return TaskService(TaskRepository(db))
+    return TaskService(TaskRepository(db), UserRepository(db))
 
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
