@@ -36,7 +36,7 @@ Signatures: ignore content after "--" (name, title, company). Never use Sender o
 assignee: @mentioned or directly asked person in message body, without the "@" prefix (e.g. "bob"); null if uncertain.
 watchers: other @mentions in body without the "@" prefix; exclude assignee.
 priority (default P2): P0 = urgent/ASAP/immediately/critical; P1 = important/soon/this week; P2 = no urgency stated.
-due_date: ISO 8601 with timezone; resolve relative dates from Email date (morning 09:00, afternoon 14:00, evening 18:00, EOD 17:00); null if none stated.
+due_date: ISO 8601 with timezone; resolve relative dates from Email date (morning 09:00, afternoon 14:00, evening 18:00, EOD 17:00); null if none stated in current message.
 Sanitize title/summary for confidential/PII content; preserve assignee, watchers, status, priority, dates."""
 
 _EXTRACTION_RULES: dict[IntentType, str] = {
