@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 
@@ -18,6 +20,7 @@ from app.schemas.subscription import WebhookNotificationPayload
 from app.services.bot_service import get_bot_service
 from app.services.email_analysis import Analyzer
 from app.services.task_service import TaskService
+from app.services.conversation_service import ConversationService
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,6 @@ class WebhookProcessorService:
     ):
         self._graph = GraphClient(http_client)
         self._analyzer = analyzer
-
     async def process_notification(self, payload: WebhookNotificationPayload) -> int:
         if not settings.webhook_client_state:
             logger.warning("WEBHOOK_CLIENT_STATE is not configured; ignoring notifications")
@@ -46,6 +48,7 @@ class WebhookProcessorService:
         db = SessionLocal()
         try:
             subscription_repo = SubscriptionRepository(db)
+            conversation_service = ConversationService(db, graph_client=self._graph)
             task_service = TaskService(
                 TaskRepository(db), UserRepository(db), get_bot_service(), TaskStatusHistoryRepository(db)
             )
@@ -72,11 +75,17 @@ class WebhookProcessorService:
                         user_email=subscription.user.email,
                         user_id=str(subscription.user_id),
                     )
+                    conversation = await conversation_service.get_thread_for_message(
+                        subscription.user.email,
+                        message,
+                        graph_user_id=subscription.graph_user_id,
+                    )
                     email_input = EmailInput.model_validate(parsed.model_dump())
                     if _dev_analyze is not None:
                         analysis = await _dev_analyze(self._analyzer, email_input, parsed)
                     else:
                         analysis = await self._analyzer.analyze(email_input)
+
                     processed_count += 1
                     logger.info(
                         "Processed message %s for %s (kind=%s)",
