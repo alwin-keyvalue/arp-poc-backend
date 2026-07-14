@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 from sqlalchemy.engine import URL
@@ -53,10 +54,23 @@ class Settings:
         self.webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
         self.webhook_client_state = os.getenv("WEBHOOK_CLIENT_STATE", "")
 
+        self.web_app_url = os.getenv("WEB_APP_URL", "")
+        self.teams_app_id = os.getenv("TEAMS_APP_ID", "")
+
     @property
     def microsoft_graph_webhook_url(self) -> str:
         base = self.webhook_base_url.rstrip("/")
         return f"{base}/api/microsoft-graph/webhooks/outlook"
+
+    def task_web_url(self, task_id) -> Optional[str]:
+        # Prefer a Teams deep link (opens inside the installed custom app) over a plain
+        # browser URL. Uses Teams' "/l/app/<appId>" share-link format; unverified whether
+        # Teams forwards the taskId query param through to the app's page — test after deploy.
+        if self.teams_app_id:
+            return f"https://teams.cloud.microsoft/l/app/{self.teams_app_id}?taskId={task_id}"
+        if self.web_app_url:
+            return f"{self.web_app_url.rstrip('/')}/?taskId={task_id}"
+        return None
 
 
 settings = Settings()

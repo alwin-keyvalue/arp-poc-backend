@@ -58,13 +58,10 @@ def _build_task_assigned_card(task: Task) -> Dict[str, Any]:
             "title": "✅ Mark as done",
             "data": {"verb": TASK_ACTION_VERB, "taskAction": "complete", "taskId": str(task.id)},
         },
-        {
-            "type": "Action.Submit",
-            "title": "🗑️ Drop task",
-            "data": {"verb": TASK_ACTION_VERB, "taskAction": "drop", "taskId": str(task.id)},
-            "style": "destructive",
-        },
     ]
+    task_web_url = settings.task_web_url(task.id)
+    if task_web_url:
+        actions.append({"type": "Action.OpenUrl", "title": "🔗 View task", "url": task_web_url})
     if task.source_link:
         actions.append({"type": "Action.OpenUrl", "title": "View source", "url": task.source_link})
 
