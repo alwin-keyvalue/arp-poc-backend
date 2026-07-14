@@ -4,47 +4,35 @@ from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from app.email.thread_history import format_thread_history
 from app.models.task import TaskPriority, TaskStatus
+from app.schemas.conversation import ConversationMessagesResponse
+from app.schemas.parsed_email import ParsedEmailInput
 
 
 # --- Input ---
 
 
-class EmailInput(BaseModel):
-    body_text: str
-    date: Optional[str] = None
-    is_reply: bool = False
-    is_forwarded: bool = False
-    parent_email_body: Optional[str] = None
-    forwarded_email_body: Optional[str] = None
-    subject: Optional[str] = None
-    from_address: Optional[str] = None
-    to: List[str] = []
-    cc: List[str] = []
-    bcc: List[str] = []
-
-
 class LLMEmailContext(BaseModel):
     date: Optional[str] = None
     subject: Optional[str] = None
-    is_reply: bool = False
-    is_forwarded: bool = False
+    kind: str
     body_text: str
-    parent_email_body: Optional[str] = None
     from_address: Optional[str] = None
-    forwarded_email_body: Optional[str] = None
+    thread_history: Optional[str] = None
 
 
-def to_llm_context(email: EmailInput) -> LLMEmailContext:
+def to_llm_context(
+    email: ParsedEmailInput,
+    conversation: ConversationMessagesResponse | None = None,
+) -> LLMEmailContext:
     return LLMEmailContext(
         date=email.date,
         subject=email.subject,
-        is_reply=email.is_reply,
-        is_forwarded=email.is_forwarded,
+        kind=email.kind.value,
         body_text=email.body_text,
-        parent_email_body=email.parent_email_body,
         from_address=email.from_address,
-        forwarded_email_body=email.forwarded_email_body,
+        thread_history=format_thread_history(email, conversation),
     )
 
 

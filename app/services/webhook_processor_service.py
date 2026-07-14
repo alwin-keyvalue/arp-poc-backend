@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
 
 import httpx
 
@@ -15,7 +12,6 @@ from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.email_analysis import EmailInput
 from app.schemas.subscription import WebhookNotificationPayload
 from app.services.bot_service import get_bot_service
 from app.services.email_analysis import Analyzer
@@ -23,13 +19,6 @@ from app.services.task_service import TaskService
 from app.services.conversation_service import ConversationService
 
 logger = logging.getLogger(__name__)
-
-_dev_analyze = None
-
-
-def set_dev_analyze(fn) -> None:
-    global _dev_analyze
-    _dev_analyze = fn
 
 
 class WebhookProcessorService:
@@ -80,11 +69,7 @@ class WebhookProcessorService:
                         message,
                         graph_user_id=subscription.graph_user_id,
                     )
-                    email_input = EmailInput.model_validate(parsed.model_dump())
-                    if _dev_analyze is not None:
-                        analysis = await _dev_analyze(self._analyzer, email_input, parsed)
-                    else:
-                        analysis = await self._analyzer.analyze(email_input)
+                    analysis = await self._analyzer.analyze(parsed, conversation)
 
                     processed_count += 1
                     logger.info(
