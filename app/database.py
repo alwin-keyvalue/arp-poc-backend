@@ -5,7 +5,15 @@ from app.config import settings
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 
-engine = create_engine(settings.database_url, connect_args=connect_args)
+engine = create_engine(
+    settings.database_url,
+    connect_args=connect_args,
+    # Neon (and similar serverless/pooled Postgres) close idle connections server-side;
+    # pre_ping health-checks a pooled connection before handing it out, and recycle
+    # proactively rotates connections before the server has a chance to kill them.
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 
 
 def quote_ident(name: str) -> str:
