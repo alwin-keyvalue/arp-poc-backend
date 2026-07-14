@@ -20,16 +20,16 @@ async def _get_graph_access_token() -> str:
     if _cached_token and time.time() < _cached_token_expiry:
         return _cached_token
 
-    if not (settings.bot_app_id and settings.bot_app_password and settings.bot_app_tenant_id):
-        raise RuntimeError("BOT_APP_ID / BOT_APP_PASSWORD / BOT_APP_TENANT_ID are not configured")
+    if not (settings.azure_client_id and settings.bot_app_password and settings.azure_tenant_id):
+        raise RuntimeError("AZURE_CLIENT_ID / BOT_APP_PASSWORD / AZURE_TENANT_ID are not configured")
 
-    token_url = f"https://login.microsoftonline.com/{settings.bot_app_tenant_id}/oauth2/v2.0/token"
+    token_url = f"https://login.microsoftonline.com/{settings.azure_tenant_id}/oauth2/v2.0/token"
     async with aiohttp.ClientSession() as session:
         async with session.post(
             token_url,
             data={
                 "grant_type": "client_credentials",
-                "client_id": settings.bot_app_id,
+                "client_id": settings.azure_client_id,
                 "client_secret": settings.bot_app_password,
                 "scope": GRAPH_SCOPE,
             },
