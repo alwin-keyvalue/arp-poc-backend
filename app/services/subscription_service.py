@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.integrations.microsoft_graph.client import GraphClient
+from app.integrations.microsoft_graph.client import GraphClient, GraphClientError
 from app.models.graph_subscription import GraphSubscriptionRecord
 from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.user_repository import UserRepository
@@ -17,6 +17,9 @@ from app.schemas.subscription import SubscribedUserResponse
 logger = logging.getLogger(__name__)
 
 MAX_SUBSCRIPTION_MINUTES = 4230
+
+# Well-known Graph mail folders we watch. Sent Items covers outbound mail and replies.
+WATCHED_MAIL_FOLDERS = ("inbox", "sentitems")
 
 
 class SubscriptionService:
@@ -28,17 +31,13 @@ class SubscriptionService:
     def list_subscriptions(self) -> list[SubscribedUserResponse]:
         return [self._to_response(record) for record in self._subscriptions.get_all()]
 
-    async def subscribe_user(self, email: str) -> SubscribedUserResponse:
+    async def subscribe_user(self, email: str) -> list[SubscribedUserResponse]:
         user = self._users.get_by_email(email)
         if not user:
             raise HTTPException(
                 status_code=404,
                 detail=f"User {email} not found. Create the user first via POST /api/users.",
             )
-
-        existing = self._subscriptions.get_by_user_id(user.id)
-        if existing:
-            return self._to_response(existing)
 
         if not settings.webhook_client_state:
             raise HTTPException(status_code=400, detail="WEBHOOK_CLIENT_STATE is not configured.")
@@ -52,30 +51,60 @@ class SubscriptionService:
         if not user.display_name and graph_user.display_name:
             self._users.update(user, display_name=graph_user.display_name)
 
-        subscription = await self._graph.create_subscription(
-            change_type="created",
-            notification_url=settings.microsoft_graph_webhook_url,
-            resource=f"/users/{graph_user.id}/mailFolders('inbox')/messages",
-            expiration_date_time=self._get_expiration_datetime(),
-            client_state=settings.webhook_client_state,
-        )
-        expiration = datetime.fromisoformat(
-            subscription.expiration_date_time.replace("Z", "+00:00")
-        )
-        record = self._subscriptions.create(
-            subscription_id=subscription.id,
-            user_id=user.id,
-            graph_user_id=graph_user.id,
-            resource=subscription.resource,
-            expiration_datetime=expiration,
-        )
-        return self._to_response(record)
+        existing = self._subscriptions.get_all_by_user_id(user.id)
+        covered_folders = {
+            folder
+            for record in existing
+            for folder in WATCHED_MAIL_FOLDERS
+            if self._resource_matches_folder(record.resource, folder)
+        }
+        missing_folders = [f for f in WATCHED_MAIL_FOLDERS if f not in covered_folders]
+        if not missing_folders:
+            return [self._to_response(record) for record in existing]
 
-    def unsubscribe_user(self, email: str) -> dict[str, str]:
-        record = self._subscriptions.get_by_email(email)
-        if not record:
+        records = list(existing)
+        for folder in missing_folders:
+            resource = f"/users/{graph_user.id}/mailFolders('{folder}')/messages"
+            subscription = await self._graph.create_subscription(
+                change_type="created",
+                notification_url=settings.microsoft_graph_webhook_url,
+                resource=resource,
+                expiration_date_time=self._get_expiration_datetime(),
+                client_state=settings.webhook_client_state,
+            )
+            expiration = datetime.fromisoformat(
+                subscription.expiration_date_time.replace("Z", "+00:00")
+            )
+            record = self._subscriptions.create(
+                subscription_id=subscription.id,
+                user_id=user.id,
+                graph_user_id=graph_user.id,
+                resource=subscription.resource,
+                expiration_datetime=expiration,
+            )
+            records.append(record)
+            logger.info("Created %s subscription %s for %s", folder, subscription.id, user.email)
+
+        return [self._to_response(record) for record in records]
+
+    async def unsubscribe_user(self, email: str) -> dict[str, str]:
+        records = self._subscriptions.get_all_by_email(email)
+        if not records:
             raise HTTPException(status_code=404, detail=f"No subscription found for {email}.")
-        self._subscriptions.delete(record)
+
+        for record in records:
+            try:
+                await self._graph.delete_subscription(record.id)
+            except GraphClientError as exc:
+                # Still remove local rows if Graph already dropped the subscription.
+                logger.warning(
+                    "Failed to delete Graph subscription %s for %s: %s",
+                    record.id,
+                    email,
+                    exc,
+                )
+
+        self._subscriptions.delete_many(records)
         return {"unsubscribed": email}
 
     def _get_expiration_datetime(self) -> str:
@@ -94,6 +123,11 @@ class SubscriptionService:
             updated = self._subscriptions.update_expiration(record, expiration)
             results.append(self._to_response(updated))
         return results
+
+    @staticmethod
+    def _resource_matches_folder(resource: str, folder: str) -> bool:
+        needle = f"mailfolders('{folder}')"
+        return needle in resource.lower().replace(" ", "")
 
     @staticmethod
     def _to_response(record: GraphSubscriptionRecord) -> SubscribedUserResponse:
