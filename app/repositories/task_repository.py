@@ -21,6 +21,14 @@ class TaskRepository:
     def get_by_id(self, task_id: uuid.UUID) -> Optional[Task]:
         return self.db.query(Task).filter(Task.id == task_id).first()
 
+    def get_by_conversation_id(self, conversation_id: str) -> Optional[Task]:
+        return (
+            self.db.query(Task)
+            .filter(Task.conversation_id == conversation_id)
+            .order_by(Task.last_update.desc())
+            .first()
+        )
+
     def get_all(self, skip: int = 0, limit: int = 100) -> List[Task]:
         return self.db.query(Task).offset(skip).limit(limit).all()
 

@@ -5,7 +5,10 @@ from typing import AsyncIterator
 import httpx
 from fastapi import Request
 
+from app.services.email_analysis import Analyzer, create_analyzer
+
 _http_client: httpx.AsyncClient | None = None
+_analyzer: Analyzer | None = None
 
 
 async def get_http_client() -> AsyncIterator[httpx.AsyncClient]:
@@ -20,6 +23,12 @@ async def close_http_client() -> None:
     if _http_client is not None:
         await _http_client.aclose()
         _http_client = None
+
+def get_analyzer() -> Analyzer:
+    global _analyzer
+    if _analyzer is None:
+        _analyzer = create_analyzer()
+    return _analyzer
 
 
 def get_request_validation_token(request: Request, body: dict | None = None) -> str | None:

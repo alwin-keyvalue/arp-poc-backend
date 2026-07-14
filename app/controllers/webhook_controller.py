@@ -3,7 +3,8 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 import httpx
 
-from app.dependencies import get_http_client, get_request_validation_token
+from app.dependencies import get_analyzer, get_http_client, get_request_validation_token
+from app.services.email_analysis import Analyzer
 from app.schemas.subscription import WebhookNotificationPayload
 from app.services.webhook_processor_service import WebhookProcessorService
 
@@ -17,8 +18,9 @@ router = APIRouter(
 
 def get_webhook_processor_service(
     http_client: httpx.AsyncClient = Depends(get_http_client),
+    analyzer: Analyzer = Depends(get_analyzer),
 ) -> WebhookProcessorService:
-    return WebhookProcessorService(http_client)
+    return WebhookProcessorService(http_client, analyzer)
 
 
 @router.get("")
