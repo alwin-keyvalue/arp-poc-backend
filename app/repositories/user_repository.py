@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -63,3 +63,35 @@ class UserRepository:
         user.is_deleted = True
         self.db.commit()
         self.db.refresh(user)
+
+    def upsert_teams_info(
+        self,
+        *,
+        email: str,
+        aad_object_id: str,
+        conversation_reference: Dict[str, Any],
+        display_name: str | None = None,
+    ) -> User:
+        user = self.get_by_email(email, include_deleted=True)
+        if user:
+            user.aad_object_id = aad_object_id
+            user.teams_conversation_reference = conversation_reference
+            if display_name and not user.display_name:
+                user.display_name = display_name
+            if user.is_deleted:
+                user.is_deleted = False
+            self.db.commit()
+            self.db.refresh(user)
+            return user
+
+        user = User(
+            email=email.strip().lower(),
+            display_name=display_name,
+            aad_object_id=aad_object_id,
+            teams_conversation_reference=conversation_reference,
+            is_deleted=False,
+        )
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        return user

@@ -12,8 +12,10 @@ from app.integrations.microsoft_graph.message_parser import parse_graph_message
 from app.processors.logging_processor import LoggingEmailProcessor
 from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import EmailInput
 from app.schemas.subscription import WebhookNotificationPayload
+from app.services.bot_service import get_bot_service
 from app.services.email_analysis import Analyzer
 from app.services.task_service import TaskService
 
@@ -44,7 +46,7 @@ class WebhookProcessorService:
         db = SessionLocal()
         try:
             subscription_repo = SubscriptionRepository(db)
-            task_service = TaskService(TaskRepository(db))
+            task_service = TaskService(TaskRepository(db), UserRepository(db), get_bot_service())
             processed_count = 0
 
             for item in payload.value:
@@ -89,7 +91,7 @@ class WebhookProcessorService:
                         "Email analysis result: %s",
                         analysis.model_dump_json(),
                     )
-                    task = task_service.apply_analysis(
+                    task = await task_service.apply_analysis(
                         analysis,
                         metadata,
                         parsed_email.from_address,
