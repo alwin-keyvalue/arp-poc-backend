@@ -52,21 +52,23 @@ class SubscriptionRepository:
             .first()
         )
 
-    def get_by_user_id(self, user_id: uuid.UUID) -> Optional[GraphSubscriptionRecord]:
+    def get_all_by_user_id(self, user_id: uuid.UUID) -> List[GraphSubscriptionRecord]:
         return (
             self.db.query(GraphSubscriptionRecord)
             .options(joinedload(GraphSubscriptionRecord.user))
             .filter(GraphSubscriptionRecord.user_id == user_id)
-            .first()
+            .order_by(GraphSubscriptionRecord.created_at)
+            .all()
         )
 
-    def get_by_email(self, email: str) -> Optional[GraphSubscriptionRecord]:
+    def get_all_by_email(self, email: str) -> List[GraphSubscriptionRecord]:
         return (
             self.db.query(GraphSubscriptionRecord)
             .options(joinedload(GraphSubscriptionRecord.user))
             .join(User)
             .filter(User.email == email.lower(), User.is_deleted.is_(False))
-            .first()
+            .order_by(GraphSubscriptionRecord.created_at)
+            .all()
         )
 
     def get_all(self) -> List[GraphSubscriptionRecord]:
@@ -81,4 +83,9 @@ class SubscriptionRepository:
 
     def delete(self, record: GraphSubscriptionRecord) -> None:
         self.db.delete(record)
+        self.db.commit()
+
+    def delete_many(self, records: List[GraphSubscriptionRecord]) -> None:
+        for record in records:
+            self.db.delete(record)
         self.db.commit()

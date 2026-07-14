@@ -26,7 +26,7 @@ def list_subscriptions(service: SubscriptionService = Depends(get_subscription_s
     return service.list_subscriptions()
 
 
-@router.post("", response_model=SubscribedUserResponse)
+@router.post("", response_model=list[SubscribedUserResponse])
 async def subscribe_user(
     body: SubscribeUserCreate,
     service: SubscriptionService = Depends(get_subscription_service),
@@ -35,8 +35,11 @@ async def subscribe_user(
 
 
 @router.delete("/{email}")
-def unsubscribe_user(email: str, service: SubscriptionService = Depends(get_subscription_service)):
-    return service.unsubscribe_user(email)
+async def unsubscribe_user(
+    email: str,
+    service: SubscriptionService = Depends(get_subscription_service),
+):
+    return await service.unsubscribe_user(email)
 
 
 @router.post("/renew", response_model=list[SubscribedUserResponse])

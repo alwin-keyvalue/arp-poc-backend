@@ -234,3 +234,6 @@ class GraphClient:
             json={"expirationDateTime": expiration_date_time},
         )
         return GraphSubscription.from_graph_response(data)
+
+    async def delete_subscription(self, subscription_id: str) -> None:
+        await self._request("DELETE", f"/subscriptions/{subscription_id}")
