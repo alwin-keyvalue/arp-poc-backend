@@ -1,3 +1,4 @@
+import json
 import logging
 import uuid
 from typing import Any, Dict, Optional
@@ -31,8 +32,16 @@ GREETING_TEXT = (
 TASK_ACTION_VERB = "task_action"
 
 
-def _build_teams_entity_deep_link(app_id: str, entity_id: str, task_id: Any) -> str:
-    query = urlencode({"taskId": str(task_id)})
+def _build_teams_entity_deep_link(app_id: str, entity_id: str, task_id: Any, web_app_url: str = "") -> str:
+    # Teams entity deep links only ever forward two things to the app: `context` (delivered
+    # via the Teams SDK as page.subPageId, not the URL) and `webUrl` (the fallback URL, which
+    # *does* become the actual page URL loaded). A bare query param on the teams.microsoft.com
+    # link itself (e.g. "?taskId=...") is not one of those and gets silently dropped by Teams.
+    task_id_str = str(task_id)
+    params: Dict[str, str] = {"context": json.dumps({"subEntityId": task_id_str}, separators=(",", ":"))}
+    if web_app_url:
+        params["webUrl"] = f"{web_app_url.rstrip('/')}/?taskId={task_id_str}"
+    query = urlencode(params)
     return f"https://teams.microsoft.com/l/entity/{app_id}/{entity_id}?{query}"
 
 
@@ -61,7 +70,9 @@ def _build_task_assigned_card(task: Task) -> Dict[str, Any]:
         facts.append({"title": "Due date", "value": task.due_date.isoformat()})
     body.append({"type": "FactSet", "facts": facts})
 
-    task_url = _build_teams_entity_deep_link(settings.teams_app_id, settings.teams_entity_id, task.id)
+    task_url = _build_teams_entity_deep_link(
+        settings.teams_app_id, settings.teams_entity_id, task.id, settings.web_app_url
+    )
     actions: list = [
         {
             "type": "Action.Submit",
