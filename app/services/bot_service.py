@@ -74,14 +74,17 @@ def _build_task_assigned_card(task: Task) -> Dict[str, Any]:
     if task_web_url:
         actions.append({"type": "Action.OpenUrl", "title": "🔗 View task", "url": task_web_url})
     if task.source_link:
+        logger.info("Building Teams deep link for task source: %s", task.source_link)
         source_url = task.source_link
         if settings.teams_app_id:
+            logger.info("Using Teams deep link for task source (appId=%s)", settings.teams_app_id)
             source_url = _build_teams_entity_deep_link(
                 settings.teams_app_id,
                 SOURCE_ENTITY_ID,
                 task.source_link,
                 {"subEntityId": task.source_link},
             )
+        logger.info("Final source URL for task: %s", source_url)
         actions.append({"type": "Action.OpenUrl", "title": "View source", "url": source_url})
 
     return {
