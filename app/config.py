@@ -56,6 +56,7 @@ class Settings:
 
         self.web_app_url = os.getenv("WEB_APP_URL", "")
         self.teams_app_id = os.getenv("TEAMS_APP_ID", "")
+        self.teams_entity_id = os.getenv("TEAMS_ENTITY_ID", "arp-poc")
 
         self.subscription_excluded_emails = {
             email.strip().lower()

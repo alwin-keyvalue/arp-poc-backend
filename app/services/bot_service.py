@@ -1,4 +1,3 @@
-import json
 import logging
 import uuid
 from typing import Any, Dict, Optional
@@ -31,11 +30,9 @@ GREETING_TEXT = (
 
 TASK_ACTION_VERB = "task_action"
 
-SOURCE_ENTITY_ID = "arp-poc"
 
-
-def _build_teams_entity_deep_link(app_id: str, entity_id: str, web_url: str, context: Dict[str, Any]) -> str:
-    query = urlencode({"webUrl": web_url, "context": json.dumps(context, separators=(",", ":"))})
+def _build_teams_entity_deep_link(app_id: str, entity_id: str, task_id: Any) -> str:
+    query = urlencode({"taskId": str(task_id)})
     return f"https://teams.microsoft.com/l/entity/{app_id}/{entity_id}?{query}"
 
 
@@ -64,19 +61,14 @@ def _build_task_assigned_card(task: Task) -> Dict[str, Any]:
         facts.append({"title": "Due date", "value": task.due_date.isoformat()})
     body.append({"type": "FactSet", "facts": facts})
 
-    source_url = _build_teams_entity_deep_link(
-        settings.teams_app_id,
-        SOURCE_ENTITY_ID,
-        task.source_link,
-        {"subEntityId": task.source_link},
-    )
+    task_url = _build_teams_entity_deep_link(settings.teams_app_id, settings.teams_entity_id, task.id)
     actions: list = [
         {
             "type": "Action.Submit",
             "title": "✅ Mark as done",
             "data": {"verb": TASK_ACTION_VERB, "taskAction": "complete", "taskId": str(task.id)},
         },
-        {"type": "Action.OpenUrl", "title": "🔗 View task", "url": source_url}
+        {"type": "Action.OpenUrl", "title": "🔗 View task", "url": task_url}
     ]
 
     return {
