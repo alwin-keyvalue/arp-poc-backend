@@ -1,3 +1,4 @@
+import json
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
@@ -38,20 +39,35 @@ async def validate_or_receive_webhook(
     background_tasks: BackgroundTasks,
     service: WebhookProcessorService = Depends(get_webhook_processor_service),
 ):
+    logger.info("Received Outlook webhook POST from %s", request.client.host if request.client else "unknown")
+
     try:
         body = await request.json()
     except Exception:
+        logger.warning("Failed to parse webhook request body as JSON; treating as empty")
         body = {}
     if not isinstance(body, dict):
+        logger.warning("Webhook request body was not a JSON object (got %s); treating as empty", type(body).__name__)
         body = {}
+
+    logger.info("Webhook payload: %s", json.dumps(body))
 
     validation_token = get_request_validation_token(request, body)
     if validation_token:
+        logger.info("Responding to Graph subscription validation handshake")
         return _respond_to_validation(validation_token)
 
-    payload = WebhookNotificationPayload.model_validate(body)
+    try:
+        payload = WebhookNotificationPayload.model_validate(body)
+    except Exception:
+        logger.exception("Failed to parse webhook notification payload: %s", body)
+        raise
+
     if payload.value:
+        logger.info("Queuing %d notification(s) for background processing", len(payload.value))
         background_tasks.add_task(service.process_notification, payload)
+    else:
+        logger.info("Webhook POST contained no notifications; nothing to process")
 
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
