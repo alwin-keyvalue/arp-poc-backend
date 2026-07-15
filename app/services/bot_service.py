@@ -40,7 +40,7 @@ def _build_teams_entity_deep_link(app_id: str, entity_id: str, web_url: str, con
 
 
 def _build_task_assigned_card(task: Task) -> Dict[str, Any]:
-    logger.info("Building Teams task-assigned card for task %s", task.id)
+    logger.info("Building Teams task-assigned card for task: %s", task.id)
     body = [
         {
             "type": "TextBlock",
