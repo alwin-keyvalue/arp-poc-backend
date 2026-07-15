@@ -2,6 +2,7 @@ import logging
 import uuid
 from typing import Any, Dict, Optional
 
+import httpx
 import jwt
 from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings, CardFactory, MessageFactory, TurnContext
 from botbuilder.schema import Activity, ConversationReference
@@ -17,6 +18,7 @@ from app.repositories.task_repository import TaskRepository
 from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.task import TaskUpdate
+from app.services.subscription_service import build_subscription_service
 
 logger = logging.getLogger("app.teams_bot")
 
@@ -106,6 +108,11 @@ class BotService:
         )
         logger.info("Stored Teams conversation reference for %s", email)
 
+    async def _subscribe_for_inbox_messages(self, email: str, db: Session) -> None:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            await build_subscription_service(db, http_client).subscribe_user(email)
+        logger.info("Subscribed %s for inbox message notifications", email)
+
     async def _handle_task_card_action(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
         value = activity.value
         task_action = value.get("taskAction")
@@ -145,6 +152,27 @@ class BotService:
         card = CardFactory.adaptive_card(_build_task_action_result_card(task, confirmation))
         await turn_context.send_activity(MessageFactory.attachment(card))
 
+    async def _handle_bot_installed(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
+        aad_object_id = activity.from_property.aad_object_id if activity.from_property else None
+        email = await get_user_email(aad_object_id)
+        logger.info("Teams user email: %s (aadObjectId=%s)", email, aad_object_id)
+
+        if email:
+            try:
+                self._remember_teams_user(activity, email, db)
+            except Exception:
+                logger.exception("Failed to persist Teams conversation reference for %s", email)
+            else:
+                if email.lower() in settings.subscription_excluded_emails:
+                    logger.info("Skipping inbox subscription for %s (in SUBSCRIPTION_EXCLUDED_EMAILS)", email)
+                else:
+                    try:
+                        await self._subscribe_for_inbox_messages(email, db)
+                    except Exception:
+                        logger.exception("Failed to subscribe %s for inbox message notifications", email)
+
+        await turn_context.send_activity(GREETING_TEXT)
+
     async def _turn_logic(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
         logger.info("Teams activity received: %s", activity.serialize())
 
@@ -153,17 +181,7 @@ class BotService:
             return
 
         if activity.type == "conversationUpdate" and self._bot_was_added(activity):
-            aad_object_id = activity.from_property.aad_object_id if activity.from_property else None
-            email = await get_user_email(aad_object_id)
-            logger.info("Teams user email: %s (aadObjectId=%s)", email, aad_object_id)
-
-            if email:
-                try:
-                    self._remember_teams_user(activity, email, db)
-                except Exception:
-                    logger.exception("Failed to persist Teams conversation reference for %s", email)
-
-            await turn_context.send_activity(GREETING_TEXT)
+            await self._handle_bot_installed(activity, turn_context, db)
 
     async def notify_task_assigned(self, user: User, task: Task) -> None:
         if not user.teams_conversation_reference:

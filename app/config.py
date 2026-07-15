@@ -57,6 +57,12 @@ class Settings:
         self.web_app_url = os.getenv("WEB_APP_URL", "")
         self.teams_app_id = os.getenv("TEAMS_APP_ID", "")
 
+        self.subscription_excluded_emails = {
+            email.strip().lower()
+            for email in os.getenv("SUBSCRIPTION_EXCLUDED_EMAILS", "").split(",")
+            if email.strip()
+        }
+
     @property
     def microsoft_graph_webhook_url(self) -> str:
         base = self.webhook_base_url.rstrip("/")
