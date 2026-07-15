@@ -59,7 +59,7 @@ class GraphClient:
             except Exception:
                 pass
             raise GraphClientError(detail, response.status_code)
-        if response.status_code == 204:
+        if response.status_code in (202, 204):
             return None
         return response.json()
 
@@ -237,3 +237,24 @@ class GraphClient:
 
     async def delete_subscription(self, subscription_id: str) -> None:
         await self._request("DELETE", f"/subscriptions/{subscription_id}")
+
+    async def send_mail(
+        self,
+        *,
+        from_user_id: str,
+        to_recipients: list[str],
+        subject: str,
+        html_body: str,
+    ) -> None:
+        await self._request(
+            "POST",
+            f"/users/{quote(from_user_id)}/sendMail",
+            json={
+                "message": {
+                    "subject": subject,
+                    "body": {"contentType": "HTML", "content": html_body},
+                    "toRecipients": [{"emailAddress": {"address": address}} for address in to_recipients],
+                },
+                "saveToSentItems": "false",
+            },
+        )

@@ -1,6 +1,8 @@
 import uuid
+from datetime import date
 from typing import List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.task import Task
@@ -52,3 +54,12 @@ class TaskRepository:
         task.is_deleted = True
         self.db.commit()
         self.db.refresh(task)
+
+    def get_created_between(self, from_date: date, to_date: date) -> List[Task]:
+        return (
+            self.db.query(Task)
+            .filter(Task.is_deleted.is_(False))
+            .filter(func.date(Task.created_at) >= from_date, func.date(Task.created_at) <= to_date)
+            .order_by(Task.created_at.asc())
+            .all()
+        )

@@ -62,6 +62,9 @@ class Settings:
             for email in os.getenv("SUBSCRIPTION_EXCLUDED_EMAILS", "").split(",")
             if email.strip()
         }
+        # The mailbox Graph sends task reports "as" (application-permission sendMail
+        # requires a specific sending mailbox, not a generic "from" address).
+        self.reports_sender_mailbox = os.getenv("REPORTS_SENDER_MAILBOX", "")
 
     @property
     def microsoft_graph_webhook_url(self) -> str:
