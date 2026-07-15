@@ -47,6 +47,13 @@ class Settings:
         self.litellm_proxy = os.getenv("LITELLM_PROXY")
         self.llm_timeout = int(os.getenv("TIMEOUT", "60"))
         self.llm_temperature = float(os.getenv("TEMPERATURE", "0.0"))
+        # Comma-separated. When non-empty, LLM analysis runs only if a listed
+        # address appears on the message (from/to/cc/bcc or mailbox owner).
+        self.llm_email_whitelist = {
+            email.strip().lower()
+            for email in os.getenv("LLM_EMAIL_WHITELIST", "").split(",")
+            if email.strip()
+        }
 
         self.azure_tenant_id = os.getenv("AZURE_TENANT_ID", "")
         self.azure_client_id = os.getenv("AZURE_CLIENT_ID", "")

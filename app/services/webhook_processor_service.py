@@ -6,6 +6,7 @@ import httpx
 
 from app.config import settings
 from app.database import SessionLocal
+from app.email.recipients import normalize_address
 from app.integrations.microsoft_graph.client import GraphClient
 from app.integrations.microsoft_graph.message_parser import parse_graph_message
 from app.integrations.microsoft_graph.models import GraphMessage, MessageBody
@@ -18,6 +19,7 @@ from app.repositories.task_repository import TaskRepository
 from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import EmailInput
+from app.schemas.parsed_email import ParsedEmailInput
 from app.schemas.subscription import WebhookNotificationItem, WebhookNotificationPayload
 from app.services.bot_service import get_bot_service
 from app.services.email_analysis import Analyzer
@@ -90,6 +92,18 @@ class WebhookProcessorService:
                         user_email=subscription.user.email,
                         user_id=str(subscription.user_id),
                     )
+                    if not self._is_whitelisted_for_llm(parsed):
+                        logger.info(
+                            "Skipping LLM for message %s — no whitelist address involved "
+                            "(from=%s to=%s cc=%s mailbox=%s)",
+                            message_id,
+                            parsed.from_address,
+                            parsed.to,
+                            parsed.cc,
+                            parsed.user_email,
+                        )
+                        continue
+
                     email_input = EmailInput.model_validate(parsed.model_dump())
                     logger.info("Email input: %s", email_input)
                     if _dev_analyze is not None:
@@ -217,3 +231,22 @@ class WebhookProcessorService:
     @staticmethod
     def _has_usable_body(message: GraphMessage) -> bool:
         return bool(message.body and message.body.content and message.body.content.strip())
+
+    @staticmethod
+    def _is_whitelisted_for_llm(parsed: ParsedEmailInput) -> bool:
+        whitelist = settings.llm_email_whitelist
+        if not whitelist:
+            return True
+
+        involved = {
+            normalize_address(addr)
+            for addr in (
+                parsed.from_address,
+                parsed.user_email,
+                *parsed.to,
+                *parsed.cc,
+                *parsed.bcc,
+            )
+            if addr
+        }
+        return bool(involved & whitelist)
