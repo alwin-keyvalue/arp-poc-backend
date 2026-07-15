@@ -30,11 +30,12 @@ class TaskService:
         self.bot_service = bot_service
         self.history_repository = history_repository
 
-    def _validate_assignee(self, assignee_id: Optional[uuid.UUID]) -> None:
-        if assignee_id is None:
-            return
-        if self.user_repository.get_by_id(assignee_id) is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee not found")
+    def _validate_assignees(self, assignee_ids: Optional[List[uuid.UUID]]) -> None:
+        for assignee_id in assignee_ids or []:
+            if self.user_repository.get_by_id(assignee_id) is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail=f"Assignee {assignee_id} not found"
+                )
 
     async def create_task(
         self,
@@ -44,7 +45,7 @@ class TaskService:
         actor_oid: Optional[str] = None,
         actor_name: Optional[str] = None,
     ) -> Task:
-        self._validate_assignee(task_data.assignee_id)
+        self._validate_assignees(task_data.assignee_ids)
         task = self.repository.create(task_data)
         self.history_repository.record(
             task=task,
@@ -54,10 +55,8 @@ class TaskService:
             changed_by_oid=actor_oid,
             changed_by_name=actor_name,
         )
-        if task.assignee_id:
-            assignee = self.user_repository.get_by_id(task.assignee_id)
-            if assignee:
-                await self.bot_service.notify_task_assigned(assignee, task)
+        for assignee in task.assignees:
+            await self.bot_service.notify_task_assigned(assignee, task)
         return task
 
     def get_task(self, task_id: uuid.UUID) -> Task:
@@ -83,7 +82,7 @@ class TaskService:
         actor_name: Optional[str] = None,
     ) -> Task:
         task = self.get_task(task_id)
-        self._validate_assignee(task_data.assignee_id)
+        self._validate_assignees(task_data.assignee_ids)
         previous_status = task.status
         updated = self.repository.update(task, task_data)
         status_changed = "status" in task_data.model_fields_set and updated.status != previous_status

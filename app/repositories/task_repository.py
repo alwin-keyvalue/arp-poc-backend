@@ -1,11 +1,12 @@
 import uuid
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.task import Task
+from app.models.user import User
 from app.schemas.task import TaskCreate, TaskUpdate
 
 
@@ -13,8 +14,15 @@ class TaskRepository:
     def __init__(self, db: Session):
         self.db = db
 
+    def _resolve_users(self, user_ids: Sequence[uuid.UUID]) -> List[User]:
+        if not user_ids:
+            return []
+        return self.db.query(User).filter(User.id.in_(user_ids)).all()
+
     def create(self, task_data: TaskCreate) -> Task:
-        task = Task(**task_data.model_dump())
+        data = task_data.model_dump(exclude={"assignee_ids"})
+        task = Task(**data)
+        task.assignees = self._resolve_users(task_data.assignee_ids)
         self.db.add(task)
         self.db.commit()
         self.db.refresh(task)
@@ -44,8 +52,10 @@ class TaskRepository:
         )
 
     def update(self, task: Task, task_data: TaskUpdate) -> Task:
-        for field, value in task_data.model_dump(exclude_unset=True).items():
+        for field, value in task_data.model_dump(exclude_unset=True, exclude={"assignee_ids"}).items():
             setattr(task, field, value)
+        if "assignee_ids" in task_data.model_fields_set:
+            task.assignees = self._resolve_users(task_data.assignee_ids or [])
         self.db.commit()
         self.db.refresh(task)
         return task

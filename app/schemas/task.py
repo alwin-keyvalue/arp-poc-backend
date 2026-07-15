@@ -14,8 +14,7 @@ class TaskBase(BaseModel):
     conversation_id: Optional[str] = None
     source_user: Optional[str] = None
     source_link: Optional[str] = None
-    assignee_id: Optional[uuid.UUID] = None
-    watchers: List[str] = []
+    assignee_ids: List[uuid.UUID] = []
     labels: List[str] = []
     status: TaskStatus = TaskStatus.TO_DO
     priority: TaskPriority = TaskPriority.P2
@@ -33,8 +32,7 @@ class TaskUpdate(BaseModel):
     conversation_id: Optional[str] = None
     source_user: Optional[str] = None
     source_link: Optional[str] = None
-    assignee_id: Optional[uuid.UUID] = None
-    watchers: Optional[List[str]] = None
+    assignee_ids: Optional[List[uuid.UUID]] = None
     labels: Optional[List[str]] = None
     status: Optional[TaskStatus] = None
     priority: Optional[TaskPriority] = None

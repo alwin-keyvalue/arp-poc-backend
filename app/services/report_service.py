@@ -26,12 +26,9 @@ class ReportService:
         self.graph_client = graph_client
 
     def _assignee_label(self, task: Task) -> str:
-        if not task.assignee_id:
+        if not task.assignees:
             return "Unassigned"
-        user = self.user_repository.get_by_id(task.assignee_id, include_deleted=True)
-        if not user:
-            return "Unassigned"
-        return user.display_name or user.email
+        return ", ".join(user.display_name or user.email for user in task.assignees)
 
     def _build_report_html(self, tasks: List[Task], from_date: date, to_date: date) -> str:
         rows = "".join(
