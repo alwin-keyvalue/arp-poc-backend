@@ -19,14 +19,43 @@ class SubscribedUserResponse(BaseModel):
     created_at: datetime
 
 
+class EncryptedContent(BaseModel):
+    data: str
+    data_key: str = Field(alias="dataKey")
+    data_signature: str = Field(alias="dataSignature")
+    encryption_certificate_id: str | None = Field(
+        default=None, alias="encryptionCertificateId"
+    )
+    encryption_certificate_thumbprint: str | None = Field(
+        default=None, alias="encryptionCertificateThumbprint"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class WebhookResourceData(BaseModel):
+    id: str | None = None
+    odata_type: str | None = Field(default=None, alias="@odata.type")
+    odata_id: str | None = Field(default=None, alias="@odata.id")
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+
 class WebhookNotificationItem(BaseModel):
     subscription_id: str = Field(alias="subscriptionId")
-    client_state: str = Field(alias="clientState")
+    client_state: str | None = Field(default=None, alias="clientState")
     resource: str
     change_type: str = Field(alias="changeType")
+    resource_data: WebhookResourceData | None = Field(default=None, alias="resourceData")
+    encrypted_content: EncryptedContent | None = Field(
+        default=None, alias="encryptedContent"
+    )
 
     model_config = {"populate_by_name": True}
 
 
 class WebhookNotificationPayload(BaseModel):
     value: list[WebhookNotificationItem] = Field(default_factory=list)
+    validation_tokens: list[str] | None = Field(default=None, alias="validationTokens")
+
+    model_config = {"populate_by_name": True}

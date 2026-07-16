@@ -47,12 +47,34 @@ class Settings:
         self.litellm_proxy = os.getenv("LITELLM_PROXY")
         self.llm_timeout = int(os.getenv("TIMEOUT", "60"))
         self.llm_temperature = float(os.getenv("TEMPERATURE", "0.0"))
+        # Comma-separated. When non-empty, LLM analysis runs only if a listed
+        # address appears on from/to/cc/bcc (mailbox owner alone does not count).
+        self.llm_email_whitelist = {
+            email.strip().lower()
+            for email in os.getenv("LLM_EMAIL_WHITELIST", "").split(",")
+            if email.strip()
+        }
 
         self.azure_tenant_id = os.getenv("AZURE_TENANT_ID", "")
         self.azure_client_id = os.getenv("AZURE_CLIENT_ID", "")
         self.azure_client_secret = os.getenv("AZURE_CLIENT_SECRET", "")
         self.webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
         self.webhook_client_state = os.getenv("WEBHOOK_CLIENT_STATE", "")
+        # basic: notification id only, then Graph GET message
+        # rich: encrypted resource data used for participant whitelist only;
+        # full body always comes from Graph GET after whitelist passes.
+        self.webhook_notification_mode = os.getenv(
+            "WEBHOOK_NOTIFICATION_MODE", "basic"
+        ).strip().lower()
+        self.graph_notification_certificate_id = os.getenv(
+            "GRAPH_NOTIFICATION_CERTIFICATE_ID", ""
+        ).strip()
+        self.graph_notification_certificate = os.getenv(
+            "GRAPH_NOTIFICATION_CERTIFICATE", ""
+        ).strip()
+        self.graph_notification_private_key = os.getenv(
+            "GRAPH_NOTIFICATION_PRIVATE_KEY", ""
+        ).strip()
 
         self.web_app_url = os.getenv("WEB_APP_URL", "")
         self.teams_app_id = os.getenv("TEAMS_APP_ID", "")
@@ -66,6 +88,10 @@ class Settings:
         # The mailbox Graph sends task reports "as" (application-permission sendMail
         # requires a specific sending mailbox, not a generic "from" address).
         self.reports_sender_mailbox = os.getenv("REPORTS_SENDER_MAILBOX", "")
+
+    @property
+    def webhook_include_resource_data(self) -> bool:
+        return self.webhook_notification_mode == "rich"
 
     @property
     def microsoft_graph_webhook_url(self) -> str:
