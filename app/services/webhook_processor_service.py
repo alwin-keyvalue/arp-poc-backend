@@ -62,7 +62,7 @@ class WebhookProcessorService:
             logger.warning("WEBHOOK_CLIENT_STATE is not configured; ignoring notifications")
             return 0
 
-        if settings.webhook_include_resource_data and payload.validation_tokens is None:
+        if payload.validation_tokens is None:
             logger.warning(
                 "Rich notification missing validationTokens (often means Graph Change Tracking "
                 "app role assignment is misconfigured); continuing with clientState check"
@@ -192,19 +192,12 @@ class WebhookProcessorService:
         Full message content (body, quoted parent/forward text) always comes
         from Graph GET after the whitelist check passes.
         """
-        identity = (
-            self._message_from_rich_notification(item)
-            if settings.webhook_include_resource_data
-            else None
-        )
-        if settings.webhook_include_resource_data and identity is None:
+        identity = self._message_from_rich_notification(item)
+        if identity is None:
             logger.info(
                 "No usable encryptedContent for message %s; Graph GET for whitelist check",
                 message_id,
             )
-
-        # Basic mode / decrypt failure: need Graph just to know participants.
-        if identity is None:
             identity = await self._graph.get_message(graph_user_id, message_id)
             if not self._passes_email_whitelist(identity):
                 logger.info(_WHITELIST_SKIP_MESSAGE, message_id)
