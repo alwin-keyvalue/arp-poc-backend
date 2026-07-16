@@ -1,6 +1,7 @@
 import uuid
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -39,6 +40,24 @@ class UserRepository:
         if not include_deleted:
             query = query.filter(User.is_deleted.is_(False))
         return query.first()
+
+    def find_by_name_or_email(self, value: str, *, include_deleted: bool = False) -> Optional[User]:
+        if not value or not value.strip():
+            return None
+        needle = value.strip()
+        if "@" in needle:
+            return self.get_by_email(needle, include_deleted=include_deleted)
+
+        lowered = needle.lower()
+        query = self.db.query(User).filter(User.display_name.isnot(None))
+        if not include_deleted:
+            query = query.filter(User.is_deleted.is_(False))
+        user = query.filter(func.lower(User.display_name) == lowered).first()
+        if user:
+            return user
+        return (
+            query.filter(func.lower(User.display_name).like(f"{lowered} %")).first()
+        )
 
     def get_all(self, skip: int = 0, limit: int = 100) -> List[User]:
         return (

@@ -20,18 +20,28 @@ class OpenAIClient:
         self._temperature = temperature
         self._timeout = timeout
 
-    async def complete_json(self, system: str, user: str, response_model: type[BaseModel]) -> str:
+    def _supports_custom_temperature(self) -> bool:
+        # gpt-5* only accept the default temperature=1.
+        name = self._model.lower().rsplit("/", 1)[-1]
+        return not (name.startswith("gpt-5"))
+
+    async def complete_json(
+        self, system: str, user: str, response_model: type[BaseModel]
+    ) -> str:
+        params = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "response_format": response_model,
+        }
+        if self._supports_custom_temperature():
+            params["temperature"] = self._temperature
+
         try:
             response = await asyncio.wait_for(
-                self._client.chat.completions.parse(
-                    model=self._model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    response_format=response_model,
-                    temperature=self._temperature,
-                ),
+                self._client.chat.completions.parse(**params),
                 timeout=self._timeout,
             )
         except asyncio.TimeoutError as exc:

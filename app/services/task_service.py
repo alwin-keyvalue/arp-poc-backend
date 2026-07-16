@@ -1,6 +1,6 @@
 import logging
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from fastapi import HTTPException, status
 
@@ -9,7 +9,13 @@ from app.models.task_status_history import TaskStatusHistory
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.email_analysis import ActionType, AnalyzeResponse, TaskCreatePayload, TaskUpdatePayload
+from app.schemas.email_analysis import (
+    ActionType,
+    AnalyzeResponse,
+    SummaryUpdatePayload,
+    TaskCreatePayload,
+    TaskUpdatePayload,
+)
 from app.schemas.parsed_email import ParsedEmailInput
 from app.schemas.task import TaskCreate, TaskUpdate
 from app.services.bot_service import BotService
@@ -101,6 +107,24 @@ class TaskService:
         task = self.get_task(task_id)
         self.repository.soft_delete(task)
 
+    @staticmethod
+    def _dedupe(values: Sequence[str]) -> List[str]:
+        return list(dict.fromkeys(v for v in values if v))
+
+    def _merged_conversation_ids(
+        self,
+        task: Task | None,
+        *,
+        conversation_ids: Sequence[str] | None = None,
+        conversation_id: str | None = None,
+    ) -> List[str]:
+        merged_conv = list(task.conversation_ids) if task is not None else []
+        if conversation_ids:
+            merged_conv.extend(conversation_ids)
+        if conversation_id:
+            merged_conv.append(conversation_id)
+        return self._dedupe(merged_conv)
+
     async def apply_analysis(
         self,
         analysis: AnalyzeResponse,
@@ -108,18 +132,55 @@ class TaskService:
         from_address: Optional[str],
         *,
         created_via: Optional[str] = None,
+        existing_task: Optional[Task] = None,
+        thread_conversation_ids: Optional[List[str]] = None,
     ) -> Optional[Task]:
-        if analysis.action == ActionType.IGNORE or analysis.action == ActionType.REMINDER:
+        if analysis.action == ActionType.REMINDER:
             return None
+
+        seed_conversation_ids = list(thread_conversation_ids or [])
+        if metadata.conversation_id:
+            seed_conversation_ids.append(metadata.conversation_id)
+
+        if analysis.action == ActionType.IGNORE:
+            if existing_task is None:
+                return None
+            summary = None
+            if isinstance(analysis.payload, SummaryUpdatePayload):
+                summary = analysis.payload.summary
+            if not summary:
+                logger.warning(
+                    "FYI with existing task %s but no summary; merging ids only",
+                    existing_task.id,
+                )
+            conversation_ids = self._merged_conversation_ids(
+                existing_task,
+                conversation_ids=seed_conversation_ids,
+            )
+            update_kwargs: dict = {
+                "conversation_ids": conversation_ids,
+            }
+            if summary:
+                update_kwargs["summary"] = summary
+            return self.update_task(
+                existing_task.id,
+                TaskUpdate(**update_kwargs),
+                source="email_analysis",
+            )
 
         if analysis.action == ActionType.CREATE:
             if not isinstance(analysis.payload, TaskCreatePayload):
                 return None
+            payload_data = analysis.payload.model_dump(exclude={"assignees"})
+            conversation_ids = self._merged_conversation_ids(
+                None,
+                conversation_ids=seed_conversation_ids,
+            )
             task_data = TaskCreate(
-                **analysis.payload.model_dump(),
+                **payload_data,
+                assignee_ids=self._resolve_assignee_ids(analysis.payload.assignees),
                 source_email_id=metadata.message_id,
-                conversation_ids=[metadata.conversation_id] if metadata.conversation_id else [],
-                internet_message_ids=[metadata.internet_message_id] if metadata.internet_message_id else [],
+                conversation_ids=conversation_ids,
                 created_via=created_via,
                 source_user=from_address,
                 source_link=metadata.web_link,
@@ -129,20 +190,40 @@ class TaskService:
         if analysis.action == ActionType.UPDATE:
             if not isinstance(analysis.payload, TaskUpdatePayload):
                 return None
-            if not metadata.conversation_id:
-                logger.warning("Cannot update task: missing conversation_id")
-                return None
-            task = self.repository.get_by_conversation_id(metadata.conversation_id)
+            task = existing_task
+            if task is None:
+                if not metadata.conversation_id:
+                    logger.warning("Cannot update task: missing conversation_id")
+                    return None
+                task = self.repository.get_by_conversation_id(metadata.conversation_id)
             if task is None:
                 logger.warning(
                     "Cannot update task: no task for conversation_id %s",
                     metadata.conversation_id,
                 )
                 return None
+            update_data = analysis.payload.model_dump(exclude_none=True, exclude={"assignees"})
+            if analysis.payload.assignees is not None:
+                update_data["assignee_ids"] = self._resolve_assignee_ids(analysis.payload.assignees)
+            update_data["conversation_ids"] = self._merged_conversation_ids(
+                task,
+                conversation_ids=seed_conversation_ids,
+            )
             return self.update_task(
                 task.id,
-                TaskUpdate(**analysis.payload.model_dump(exclude_none=True)),
+                TaskUpdate(**update_data),
                 source="email_analysis",
             )
 
         return None
+
+    def _resolve_assignee_ids(self, assignees: Optional[List[str]]) -> List[uuid.UUID]:
+        ids: List[uuid.UUID] = []
+        seen: set[uuid.UUID] = set()
+        for value in assignees or []:
+            user = self.user_repository.find_by_name_or_email(value)
+            if user is None or user.id in seen:
+                continue
+            seen.add(user.id)
+            ids.append(user.id)
+        return ids
