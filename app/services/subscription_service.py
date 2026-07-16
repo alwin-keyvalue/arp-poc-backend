@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -8,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.database import SessionLocal
 from app.integrations.microsoft_graph.client import GraphClient, GraphClientError, MESSAGE_SELECT
 from app.integrations.microsoft_graph.rich_notifications import (
     RichNotificationError,
@@ -17,7 +19,7 @@ from app.integrations.microsoft_graph.rich_notifications import (
 from app.models.graph_subscription import GraphSubscriptionRecord
 from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.subscription import SubscribedUserResponse
+from app.schemas.subscription import RenewAllReport, RenewSubscriptionResult, SubscribedUserResponse
 
 logger = logging.getLogger(__name__)
 
@@ -153,18 +155,119 @@ class SubscriptionService:
         expires = datetime.now(timezone.utc) + timedelta(minutes=minutes)
         return expires.isoformat().replace("+00:00", "Z")
 
-    async def renew_all(self) -> list[SubscribedUserResponse]:
-        subscriptions = self._subscriptions.get_all()
-        expiration_date_time = self._get_expiration_datetime()
-        results = []
-        for record in subscriptions:
+    async def renew_all(self) -> RenewAllReport:
+        expiration = self._get_expiration_datetime()
+        results: list[RenewSubscriptionResult] = []
+        for record in self._subscriptions.get_all():
+            results.append(await self._renew_subscription(record, expiration))
+
+        counts = Counter(result.status for result in results)
+        return RenewAllReport(
+            total=len(results),
+            renewed=counts["renewed"],
+            recreated=counts["recreated"],
+            failed=counts["failed"],
+            results=results,
+        )
+
+    async def _renew_subscription(
+        self,
+        record: GraphSubscriptionRecord,
+        expiration_date_time: str,
+    ) -> RenewSubscriptionResult:
+        try:
             renewed = await self._graph.renew_subscription(record.id, expiration_date_time)
             expiration = datetime.fromisoformat(
                 renewed.expiration_date_time.replace("Z", "+00:00")
             )
             updated = self._subscriptions.update_expiration(record, expiration)
-            results.append(self._to_response(updated))
-        return results
+            return self._renew_result(
+                record,
+                status="renewed",
+                subscription=self._to_response(updated),
+            )
+        except GraphClientError as exc:
+            if exc.status_code == 404:
+                return await self._recreate_subscription(record)
+            logger.warning(
+                "Failed to renew Graph subscription %s for %s: %s",
+                record.id,
+                record.user.email,
+                exc,
+            )
+            return self._renew_result(record, status="failed", message=str(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unexpected error renewing Graph subscription %s for %s",
+                record.id,
+                record.user.email,
+            )
+            return self._renew_result(record, status="failed", message=str(exc))
+
+    async def _recreate_subscription(
+        self,
+        record: GraphSubscriptionRecord,
+    ) -> RenewSubscriptionResult:
+        email = record.user.email
+        old_id = record.id
+        user_id = record.user_id
+        graph_user_id = record.graph_user_id
+        resource = record.resource
+
+        logger.info(
+            "Graph subscription %s for %s not found; recreating same resource",
+            old_id,
+            email,
+        )
+        await self._delete_graph_subscription(old_id, email)
+        self._subscriptions.delete(record)
+
+        rich = settings.webhook_include_resource_data
+        encryption_certificate: str | None = None
+        encryption_certificate_id: str | None = None
+        if rich:
+            try:
+                encryption_certificate, encryption_certificate_id = self._require_rich_cert_config()
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+                return self._renew_result(record, status="failed", message=detail)
+
+        try:
+            subscription = await self._graph.create_subscription(
+                change_type="created",
+                notification_url=settings.microsoft_graph_webhook_url,
+                resource=resource,
+                expiration_date_time=self._get_expiration_datetime(),
+                client_state=settings.webhook_client_state,
+                include_resource_data=rich,
+                encryption_certificate=encryption_certificate,
+                encryption_certificate_id=encryption_certificate_id,
+            )
+            expiration = datetime.fromisoformat(
+                subscription.expiration_date_time.replace("Z", "+00:00")
+            )
+            created = self._subscriptions.create(
+                subscription_id=subscription.id,
+                user_id=user_id,
+                graph_user_id=graph_user_id,
+                resource=subscription.resource,
+                expiration_datetime=expiration,
+            )
+        except GraphClientError as exc:
+            logger.warning("Failed to recreate subscription for %s after 404: %s", email, exc)
+            return self._renew_result(record, status="failed", message=str(exc))
+        except Exception as exc:
+            logger.exception("Unexpected error recreating subscription for %s after 404", email)
+            return self._renew_result(record, status="failed", message=str(exc))
+
+        return RenewSubscriptionResult(
+            user_email=email,
+            subscription_id=created.id,
+            resource=created.resource,
+            status="recreated",
+            message=f"Recreated after Graph subscription {old_id} was not found",
+            subscription=self._to_response(created),
+        )
 
     async def _delete_graph_subscription(self, subscription_id: str, email: str) -> None:
         try:
@@ -215,6 +318,23 @@ class SubscriptionService:
         return needle in resource.lower().replace(" ", "")
 
     @staticmethod
+    def _renew_result(
+        record: GraphSubscriptionRecord,
+        *,
+        status: str,
+        message: str | None = None,
+        subscription: SubscribedUserResponse | None = None,
+    ) -> RenewSubscriptionResult:
+        return RenewSubscriptionResult(
+            user_email=record.user.email,
+            subscription_id=record.id,
+            resource=record.resource,
+            status=status,
+            message=message,
+            subscription=subscription,
+        )
+
+    @staticmethod
     def _resource_matches_notification_mode(resource: str, rich: bool) -> bool:
         has_select = "$select=" in resource.lower()
         return has_select if rich else not has_select
@@ -235,3 +355,38 @@ class SubscriptionService:
 
 def build_subscription_service(db: Session, http_client: httpx.AsyncClient) -> SubscriptionService:
     return SubscriptionService(db, GraphClient(http_client))
+
+
+async def run_renew_all(http_client: httpx.AsyncClient) -> RenewAllReport | None:
+    """Background job: opens its own DB session, logs outcome, safe after HTTP 202."""
+    db = SessionLocal()
+    try:
+        service = build_subscription_service(db, http_client)
+        report = await service.renew_all()
+        _log_renew_report(report)
+        return report
+    except Exception:
+        logger.exception("Subscription renew job failed unexpectedly")
+        return None
+    finally:
+        db.close()
+
+
+def _log_renew_report(report: RenewAllReport) -> None:
+    logger.info(
+        "Subscription renew finished: total=%d renewed=%d recreated=%d failed=%d",
+        report.total,
+        report.renewed,
+        report.recreated,
+        report.failed,
+    )
+    for result in report.results:
+        if result.status != "failed":
+            continue
+        logger.warning(
+            "Subscription renew failed for %s (%s, %s): %s",
+            result.user_email,
+            result.subscription_id,
+            result.resource,
+            result.message,
+        )
