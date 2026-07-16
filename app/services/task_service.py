@@ -106,6 +106,8 @@ class TaskService:
         analysis: AnalyzeResponse,
         metadata: ParsedEmailInput,
         from_address: Optional[str],
+        *,
+        created_via: Optional[str] = None,
     ) -> Optional[Task]:
         if analysis.action == ActionType.IGNORE or analysis.action == ActionType.REMINDER:
             return None
@@ -118,6 +120,7 @@ class TaskService:
                 source_email_id=metadata.message_id,
                 conversation_ids=[metadata.conversation_id] if metadata.conversation_id else [],
                 internet_message_ids=[metadata.internet_message_id] if metadata.internet_message_id else [],
+                created_via=created_via,
                 source_user=from_address,
                 source_link=metadata.web_link,
             )

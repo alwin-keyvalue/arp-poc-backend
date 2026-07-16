@@ -14,6 +14,9 @@ class TaskBase(BaseModel):
     source_email_id: Optional[str] = None
     conversation_ids: List[str] = []
     internet_message_ids: List[str] = []
+    # How this task came to exist ("webhook", "scheduled_sync", or None for directly-created
+    # tasks) — a fact about its origin, not settable after creation, so this isn't in TaskUpdate.
+    created_via: Optional[str] = None
     source_user: Optional[str] = None
     source_link: Optional[str] = None
     assignee_ids: List[uuid.UUID] = []

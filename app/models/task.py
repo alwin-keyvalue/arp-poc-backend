@@ -60,3 +60,7 @@ class Task(Base):
     @property
     def internet_message_ids(self) -> list:
         return (self.metadata_ or {}).get("internet_message_ids", [])
+
+    @property
+    def created_via(self) -> str | None:
+        return (self.metadata_ or {}).get("created_via")

@@ -108,6 +108,7 @@ class MailboxSyncService:
                         user_email=user_email,
                         processed_repo=processed_repo,
                         task_service=task_service,
+                        created_via="sync_job",
                     )
                     outcome_counts[outcome.value] += 1
                 except Exception:

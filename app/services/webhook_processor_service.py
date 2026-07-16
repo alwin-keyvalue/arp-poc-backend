@@ -125,6 +125,7 @@ class WebhookProcessorService:
                 user_email=subscription.user.email,
                 processed_repo=processed_repo,
                 task_service=task_service,
+                created_via="webhook",
             )
             return 1 if outcome == MessageOutcome.HANDLED else 0
         except Exception as exc:
@@ -144,6 +145,7 @@ class WebhookProcessorService:
         user_email: str,
         processed_repo: ProcessedEmailRepository,
         task_service: TaskService,
+        created_via: str,
     ) -> MessageOutcome:
         """Shared per-message pipeline used by both real-time webhook delivery and the
         scheduled mailbox sync: dedup, whitelist, parse, analyze, apply. Graph's webhook
@@ -169,7 +171,7 @@ class WebhookProcessorService:
 
         logger.info("Email analysis result: %s", analysis.model_dump_json())
 
-        task = await task_service.apply_analysis(analysis, parsed, parsed.from_address)
+        task = await task_service.apply_analysis(analysis, parsed, parsed.from_address, created_via=created_via)
         processed_repo.mark_processed(user_id, message.id)
         if task is not None:
             logger.info("Task %s %s from email %s", task.id, analysis.action.value, message.id)

@@ -10,7 +10,10 @@ from app.models.user import User
 from app.schemas.task import TaskCreate, TaskUpdate
 
 _TASK_METADATA_FIELDS = {"conversation_ids", "internet_message_ids"}
-_TASK_EXCLUDED_FIELDS = _TASK_METADATA_FIELDS | {"assignee_ids"}
+# created_via lives in metadata_ too, but unlike the fields above it's create-only (not on
+# TaskUpdate at all) — excluded here just so the flat model_dump().setattr loop in create()
+# doesn't try to pass it to Task(**data), which has no matching column.
+_TASK_EXCLUDED_FIELDS = _TASK_METADATA_FIELDS | {"assignee_ids", "created_via"}
 
 
 class TaskRepository:
@@ -33,6 +36,7 @@ class TaskRepository:
         task.metadata_ = {
             "conversation_ids": self._dedupe(task_data.conversation_ids),
             "internet_message_ids": self._dedupe(task_data.internet_message_ids),
+            "created_via": task_data.created_via,
         }
         self.db.add(task)
         self.db.commit()
