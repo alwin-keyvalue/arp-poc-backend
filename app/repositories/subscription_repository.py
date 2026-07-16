@@ -81,6 +81,16 @@ class SubscriptionRepository:
             .all()
         )
 
+    def get_all_by_user_ids(self, user_ids: List[uuid.UUID]) -> List[GraphSubscriptionRecord]:
+        return (
+            self.db.query(GraphSubscriptionRecord)
+            .options(joinedload(GraphSubscriptionRecord.user))
+            .join(User)
+            .filter(GraphSubscriptionRecord.user_id.in_(user_ids), User.is_deleted.is_(False))
+            .order_by(GraphSubscriptionRecord.created_at)
+            .all()
+        )
+
     def delete(self, record: GraphSubscriptionRecord) -> None:
         self.db.delete(record)
         self.db.commit()

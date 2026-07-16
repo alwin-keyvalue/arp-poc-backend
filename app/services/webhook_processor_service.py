@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import enum
 import logging
+import uuid
 
 import httpx
 
@@ -14,6 +16,7 @@ from app.integrations.microsoft_graph.rich_notifications import (
     RichNotificationError,
     decrypt_encrypted_content,
 )
+from app.repositories.processed_email_repository import ProcessedEmailRepository
 from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
@@ -26,7 +29,18 @@ from app.services.task_service import TaskService
 
 logger = logging.getLogger(__name__)
 
+_WHITELIST_SKIP_MESSAGE = "Skipping message %s - no whitelist address involved"
+
 _dev_analyze = None
+
+
+class MessageOutcome(str, enum.Enum):
+    """What happened to a single message in process_message — precise enough for callers
+    (webhook and mailbox sync) to log per-run aggregate counts, not just a pass/fail total."""
+
+    ALREADY_PROCESSED = "already_processed"
+    WHITELIST_SKIPPED = "whitelist_skipped"
+    HANDLED = "handled"
 
 
 def set_dev_analyze(fn) -> None:
@@ -57,6 +71,7 @@ class WebhookProcessorService:
         db = SessionLocal()
         try:
             subscription_repo = SubscriptionRepository(db)
+            processed_repo = ProcessedEmailRepository(db)
             task_service = TaskService(
                 TaskRepository(db),
                 UserRepository(db),
@@ -65,7 +80,7 @@ class WebhookProcessorService:
             )
             processed = 0
             for item in payload.value:
-                processed += await self._process_item(item, subscription_repo, task_service)
+                processed += await self._process_item(item, subscription_repo, processed_repo, task_service)
             return processed
         finally:
             db.close()
@@ -74,6 +89,7 @@ class WebhookProcessorService:
         self,
         item: WebhookNotificationItem,
         subscription_repo: SubscriptionRepository,
+        processed_repo: ProcessedEmailRepository,
         task_service: TaskService,
     ) -> int:
         if item.client_state != settings.webhook_client_state:
@@ -103,25 +119,14 @@ class WebhookProcessorService:
             if message is None:
                 return 0
 
-            parsed = parse_graph_message(
+            outcome = await self.process_message(
                 message,
+                user_id=subscription.user_id,
                 user_email=subscription.user.email,
-                user_id=str(subscription.user_id),
+                processed_repo=processed_repo,
+                task_service=task_service,
             )
-            email_input = EmailInput.model_validate(parsed.model_dump())
-            logger.info("Email input: %s", email_input)
-
-            if _dev_analyze is not None:
-                analysis = await _dev_analyze(self._analyzer, email_input, parsed)
-            else:
-                analysis = await self._analyzer.analyze(email_input)
-
-            logger.info("Email analysis result: %s", analysis.model_dump_json())
-
-            task = await task_service.apply_analysis(analysis, parsed, parsed.from_address)
-            if task is not None:
-                logger.info("Task %s %s from email %s", task.id, analysis.action.value, message_id)
-            return 1
+            return 1 if outcome == MessageOutcome.HANDLED else 0
         except Exception as exc:
             logger.warning(
                 "Failed to fetch or parse message %s for user %s: %s",
@@ -130,6 +135,47 @@ class WebhookProcessorService:
                 exc,
             )
             return 0
+
+    async def process_message(
+        self,
+        message: GraphMessage,
+        *,
+        user_id: uuid.UUID,
+        user_email: str,
+        processed_repo: ProcessedEmailRepository,
+        task_service: TaskService,
+    ) -> MessageOutcome:
+        """Shared per-message pipeline used by both real-time webhook delivery and the
+        scheduled mailbox sync: dedup, whitelist, parse, analyze, apply. Graph's webhook
+        delivery is at-least-once and the scheduled sync can overlap it, so `processed_repo`
+        is checked/marked here rather than only in one caller."""
+        if processed_repo.is_processed(user_id, message.id):
+            logger.info("Skipping already-processed message %s for %s", message.id, user_email)
+            return MessageOutcome.ALREADY_PROCESSED
+
+        if not self._passes_email_whitelist(message):
+            logger.info(_WHITELIST_SKIP_MESSAGE, message.id)
+            processed_repo.mark_processed(user_id, message.id)
+            return MessageOutcome.WHITELIST_SKIPPED
+
+        parsed = parse_graph_message(message, user_email=user_email, user_id=str(user_id))
+        email_input = EmailInput.model_validate(parsed.model_dump())
+        logger.info("Email input: %s", email_input)
+
+        if _dev_analyze is not None:
+            analysis = await _dev_analyze(self._analyzer, email_input, parsed)
+        else:
+            analysis = await self._analyzer.analyze(email_input)
+
+        logger.info("Email analysis result: %s", analysis.model_dump_json())
+
+        task = await task_service.apply_analysis(analysis, parsed, parsed.from_address)
+        processed_repo.mark_processed(user_id, message.id)
+        if task is not None:
+            logger.info("Task %s %s from email %s", task.id, analysis.action.value, message.id)
+        else:
+            logger.info("Message %s analyzed as %s, no task change", message.id, analysis.action.value)
+        return MessageOutcome.HANDLED
 
     async def _load_whitelisted_message(
         self,
@@ -159,12 +205,12 @@ class WebhookProcessorService:
         if identity is None:
             identity = await self._graph.get_message(graph_user_id, message_id)
             if not self._passes_email_whitelist(identity):
-                logger.info("Skipping message %s - no whitelist address involved", message_id)
+                logger.info(_WHITELIST_SKIP_MESSAGE, message_id)
                 return None
             return identity
 
         if not self._passes_email_whitelist(identity):
-            logger.info("Skipping message %s - no whitelist address involved", message_id)
+            logger.info(_WHITELIST_SKIP_MESSAGE, message_id)
             return None
 
         logger.info(

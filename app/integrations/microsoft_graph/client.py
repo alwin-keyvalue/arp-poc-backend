@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -8,6 +10,8 @@ import httpx
 from app.email.message_ids import discovery_message_ids, normalize_message_id
 from app.integrations.microsoft_graph.auth import graph_auth
 from app.integrations.microsoft_graph.models import GraphMessage, GraphSubscription, GraphUser
+
+logger = logging.getLogger(__name__)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -124,6 +128,54 @@ class GraphClient:
             next_url = data.get("@odata.nextLink")
 
         messages.sort(key=lambda m: m.received_date_time or "")
+        return messages
+
+    async def list_messages_since(
+        self,
+        user_id: str,
+        since: datetime,
+        *,
+        folder: str = "inbox",
+        page_size: int = 50,
+        max_messages: int = 1000,
+    ) -> list[GraphMessage]:
+        """Fetch all messages in a mail folder received at or after `since`, oldest first."""
+        since_iso = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+        filter_expr = quote(f"receivedDateTime ge {since_iso}", safe="")
+        next_url: str | None = (
+            f"/users/{user_id}/mailFolders/{folder}/messages"
+            f"?$filter={filter_expr}"
+            f"&$orderby=receivedDateTime asc"
+            f"&$top={page_size}"
+            f"&$select={MESSAGE_SELECT}"
+        )
+        logger.info(
+            "Listing messages for %s: folder=%s since=%s max_messages=%d", user_id, folder, since_iso, max_messages
+        )
+
+        messages: list[GraphMessage] = []
+        pages = 0
+        while next_url and len(messages) < max_messages:
+            data = await self._request("GET", next_url)
+            pages += 1
+            for item in data.get("value") or []:
+                messages.append(GraphMessage.from_graph_response(item))
+                if len(messages) >= max_messages:
+                    break
+            next_url = data.get("@odata.nextLink")
+
+        if next_url and len(messages) >= max_messages:
+            logger.warning(
+                "list_messages_since hit max_messages=%d for %s (folder=%s since=%s) — more messages "
+                "exist in this window but were NOT fetched; results are truncated to the oldest %d",
+                max_messages,
+                user_id,
+                folder,
+                since_iso,
+                max_messages,
+            )
+        logger.info("Listed %d message(s) for %s across %d page(s)", len(messages), user_id, pages)
+
         return messages
 
     async def get_related_thread_messages(
