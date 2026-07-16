@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
@@ -17,6 +18,28 @@ class SubscribedUserResponse(BaseModel):
     resource: str
     expiration_datetime: datetime
     created_at: datetime
+
+
+class RenewSubscriptionResult(BaseModel):
+    user_email: str
+    subscription_id: str
+    resource: str
+    status: Literal["renewed", "recreated", "failed"]
+    message: str | None = None
+    subscription: SubscribedUserResponse | None = None
+
+
+class RenewAllReport(BaseModel):
+    total: int
+    renewed: int
+    recreated: int
+    failed: int
+    results: list[RenewSubscriptionResult]
+
+
+class RenewAllAcceptedResponse(BaseModel):
+    status: Literal["accepted"] = "accepted"
+    message: str = "Subscription renewal queued for background processing"
 
 
 class EncryptedContent(BaseModel):
