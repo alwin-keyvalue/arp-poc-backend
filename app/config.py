@@ -48,7 +48,7 @@ class Settings:
         self.llm_timeout = int(os.getenv("TIMEOUT", "60"))
         self.llm_temperature = float(os.getenv("TEMPERATURE", "0.0"))
         # Comma-separated. When non-empty, LLM analysis runs only if a listed
-        # address appears on the message (from/to/cc/bcc or mailbox owner).
+        # address appears on from/to/cc/bcc (mailbox owner alone does not count).
         self.llm_email_whitelist = {
             email.strip().lower()
             for email in os.getenv("LLM_EMAIL_WHITELIST", "").split(",")
@@ -61,7 +61,8 @@ class Settings:
         self.webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
         self.webhook_client_state = os.getenv("WEBHOOK_CLIENT_STATE", "")
         # basic: notification id only, then Graph GET message
-        # rich: encrypted resource data in notification (Outlook cannot include body)
+        # rich: encrypted resource data used for participant whitelist only;
+        # full body always comes from Graph GET after whitelist passes.
         self.webhook_notification_mode = os.getenv(
             "WEBHOOK_NOTIFICATION_MODE", "basic"
         ).strip().lower()
@@ -74,11 +75,6 @@ class Settings:
         self.graph_notification_private_key = os.getenv(
             "GRAPH_NOTIFICATION_PRIVATE_KEY", ""
         ).strip()
-        # When rich payload has no Body (Outlook forbids it), use bodyPreview instead
-        # of calling Graph. Set false to always Graph-GET the full message in rich mode.
-        self.webhook_rich_use_body_preview = os.getenv(
-            "WEBHOOK_RICH_USE_BODY_PREVIEW", "true"
-        ).strip().lower() in {"1", "true", "yes", "on"}
 
         self.web_app_url = os.getenv("WEB_APP_URL", "")
         self.teams_app_id = os.getenv("TEAMS_APP_ID", "")
