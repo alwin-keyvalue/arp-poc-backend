@@ -23,11 +23,6 @@ from app.schemas.subscription import RenewAllReport, RenewSubscriptionResult, Su
 
 logger = logging.getLogger(__name__)
 
-# Outlook message subscriptions without resource data: up to ~7 days.
-# Rich (includeResourceData) Outlook subscriptions: max 1440 minutes (~1 day).
-MAX_SUBSCRIPTION_MINUTES_BASIC = 4230
-MAX_SUBSCRIPTION_MINUTES_RICH = 1440
-
 # Well-known Graph mail folders we watch. Sent Items covers outbound mail and replies.
 WATCHED_MAIL_FOLDERS = ("inbox", "sentitems")
 
@@ -64,28 +59,19 @@ class SubscriptionService:
                 detail="WEBHOOK_BASE_URL is not configured. Use ngrok for local dev.",
             )
 
-        rich = settings.webhook_include_resource_data
-        encryption_certificate: str | None = None
-        encryption_certificate_id: str | None = None
-        if rich:
-            encryption_certificate, encryption_certificate_id = self._require_rich_cert_config()
+        encryption_certificate, encryption_certificate_id = self._require_cert_config()
 
         graph_user = await self._graph.get_user_by_email(user.email)
         if not user.display_name and graph_user.display_name:
             self._users.update(user, display_name=graph_user.display_name)
 
         existing = self._subscriptions.get_all_by_user_id(user.id)
-        stale = [
-            record
-            for record in existing
-            if not self._resource_matches_notification_mode(record.resource, rich)
-        ]
+        stale = [record for record in existing if not self._is_rich_resource(record.resource)]
         for record in stale:
             logger.info(
-                "Replacing subscription %s for %s — mode mismatch (want rich=%s)",
+                "Replacing non-rich subscription %s for %s",
                 record.id,
                 user.email,
-                rich,
             )
             await self._delete_graph_subscription(record.id, user.email)
             self._subscriptions.delete(record)
@@ -103,14 +89,13 @@ class SubscriptionService:
 
         records = list(existing)
         for folder in missing_folders:
-            resource = self._build_resource(graph_user.id, folder, rich=rich)
+            resource = self._build_resource(graph_user.id, folder)
             subscription = await self._graph.create_subscription(
                 change_type="created",
                 notification_url=settings.microsoft_graph_webhook_url,
                 resource=resource,
                 expiration_date_time=self._get_expiration_datetime(),
                 client_state=settings.webhook_client_state,
-                include_resource_data=rich,
                 encryption_certificate=encryption_certificate,
                 encryption_certificate_id=encryption_certificate_id,
             )
@@ -125,13 +110,7 @@ class SubscriptionService:
                 expiration_datetime=expiration,
             )
             records.append(record)
-            logger.info(
-                "Created %s subscription %s for %s (rich=%s)",
-                folder,
-                subscription.id,
-                user.email,
-                rich,
-            )
+            logger.info("Created %s subscription %s for %s", folder, subscription.id, user.email)
 
         return [self._to_response(record) for record in records]
 
@@ -147,12 +126,9 @@ class SubscriptionService:
         return {"unsubscribed": email}
 
     def _get_expiration_datetime(self) -> str:
-        minutes = (
-            MAX_SUBSCRIPTION_MINUTES_RICH
-            if settings.webhook_include_resource_data
-            else MAX_SUBSCRIPTION_MINUTES_BASIC
+        expires = datetime.now(timezone.utc) + timedelta(
+            minutes=settings.max_subscription_minutes
         )
-        expires = datetime.now(timezone.utc) + timedelta(minutes=minutes)
         return expires.isoformat().replace("+00:00", "Z")
 
     async def renew_all(self) -> RenewAllReport:
@@ -222,15 +198,11 @@ class SubscriptionService:
         await self._delete_graph_subscription(old_id, email)
         self._subscriptions.delete(record)
 
-        rich = settings.webhook_include_resource_data
-        encryption_certificate: str | None = None
-        encryption_certificate_id: str | None = None
-        if rich:
-            try:
-                encryption_certificate, encryption_certificate_id = self._require_rich_cert_config()
-            except HTTPException as exc:
-                detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-                return self._renew_result(record, status="failed", message=detail)
+        try:
+            encryption_certificate, encryption_certificate_id = self._require_cert_config()
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            return self._renew_result(record, status="failed", message=detail)
 
         try:
             subscription = await self._graph.create_subscription(
@@ -239,7 +211,6 @@ class SubscriptionService:
                 resource=resource,
                 expiration_date_time=self._get_expiration_datetime(),
                 client_state=settings.webhook_client_state,
-                include_resource_data=rich,
                 encryption_certificate=encryption_certificate,
                 encryption_certificate_id=encryption_certificate_id,
             )
@@ -282,7 +253,7 @@ class SubscriptionService:
             )
 
     @staticmethod
-    def _require_rich_cert_config() -> tuple[str, str]:
+    def _require_cert_config() -> tuple[str, str]:
         cert_id = settings.graph_notification_certificate_id
         cert = settings.graph_notification_certificate
         private_key = settings.graph_notification_private_key
@@ -306,16 +277,20 @@ class SubscriptionService:
         return certificate_b64, cert_id
 
     @staticmethod
-    def _build_resource(graph_user_id: str, folder: str, *, rich: bool) -> str:
-        resource = f"/users/{graph_user_id}/mailFolders('{folder}')/messages"
-        if rich:
-            resource = f"{resource}?$select={RICH_MESSAGE_SELECT}"
-        return resource
+    def _build_resource(graph_user_id: str, folder: str) -> str:
+        return (
+            f"/users/{graph_user_id}/mailFolders('{folder}')/messages"
+            f"?$select={RICH_MESSAGE_SELECT}"
+        )
 
     @staticmethod
     def _resource_matches_folder(resource: str, folder: str) -> bool:
         needle = f"mailfolders('{folder}')"
         return needle in resource.lower().replace(" ", "")
+
+    @staticmethod
+    def _is_rich_resource(resource: str) -> bool:
+        return "$select=" in resource.lower()
 
     @staticmethod
     def _renew_result(
@@ -333,11 +308,6 @@ class SubscriptionService:
             message=message,
             subscription=subscription,
         )
-
-    @staticmethod
-    def _resource_matches_notification_mode(resource: str, rich: bool) -> bool:
-        has_select = "$select=" in resource.lower()
-        return has_select if rich else not has_select
 
     @staticmethod
     def _to_response(record: GraphSubscriptionRecord) -> SubscribedUserResponse:

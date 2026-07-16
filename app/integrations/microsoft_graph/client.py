@@ -209,9 +209,8 @@ class GraphClient:
         resource: str,
         expiration_date_time: str,
         client_state: str,
-        include_resource_data: bool = False,
-        encryption_certificate: str | None = None,
-        encryption_certificate_id: str | None = None,
+        encryption_certificate: str,
+        encryption_certificate_id: str,
     ) -> GraphSubscription:
         payload: dict[str, Any] = {
             "changeType": change_type,
@@ -219,11 +218,10 @@ class GraphClient:
             "resource": resource,
             "expirationDateTime": expiration_date_time,
             "clientState": client_state,
+            "includeResourceData": True,
+            "encryptionCertificate": encryption_certificate,
+            "encryptionCertificateId": encryption_certificate_id,
         }
-        if include_resource_data:
-            payload["includeResourceData"] = True
-            payload["encryptionCertificate"] = encryption_certificate
-            payload["encryptionCertificateId"] = encryption_certificate_id
         data = await self._request("POST", "/subscriptions", json=payload)
         return GraphSubscription.from_graph_response(data)
 

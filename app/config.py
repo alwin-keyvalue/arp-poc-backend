@@ -60,12 +60,11 @@ class Settings:
         self.azure_client_secret = os.getenv("AZURE_CLIENT_SECRET", "")
         self.webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
         self.webhook_client_state = os.getenv("WEBHOOK_CLIENT_STATE", "")
-        # basic: notification id only, then Graph GET message
-        # rich: encrypted resource data used for participant whitelist only;
-        # full body always comes from Graph GET after whitelist passes.
-        self.webhook_notification_mode = os.getenv(
-            "WEBHOOK_NOTIFICATION_MODE", "basic"
-        ).strip().lower()
+        # Rich Outlook subscriptions max ~1440 minutes (~1 day).
+        self.max_subscription_minutes = int(os.getenv("MAX_SUBSCRIPTION_MINUTES", "1440"))
+        # Rich (includeResourceData) webhook certs — required for Outlook subscriptions.
+        # Encrypted resource data is used for participant whitelist only; full body
+        # always comes from Graph GET after whitelist passes.
         self.graph_notification_certificate_id = os.getenv(
             "GRAPH_NOTIFICATION_CERTIFICATE_ID", ""
         ).strip()
@@ -88,10 +87,6 @@ class Settings:
         # The mailbox Graph sends task reports "as" (application-permission sendMail
         # requires a specific sending mailbox, not a generic "from" address).
         self.reports_sender_mailbox = os.getenv("REPORTS_SENDER_MAILBOX", "")
-
-    @property
-    def webhook_include_resource_data(self) -> bool:
-        return self.webhook_notification_mode == "rich"
 
     @property
     def microsoft_graph_webhook_url(self) -> str:
