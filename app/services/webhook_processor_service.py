@@ -8,7 +8,9 @@ import httpx
 
 from app.config import settings
 from app.database import SessionLocal
+from app.email.classification import EmailKind
 from app.email.recipients import normalize_address
+from app.email.thread_context import collect_thread_ids, format_thread_context
 from app.integrations.microsoft_graph.client import GraphClient
 from app.integrations.microsoft_graph.message_parser import parse_graph_message
 from app.integrations.microsoft_graph.models import GraphMessage, Recipient
@@ -16,22 +18,22 @@ from app.integrations.microsoft_graph.rich_notifications import (
     RichNotificationError,
     decrypt_encrypted_content,
 )
+from app.models.task import Task
 from app.repositories.processed_email_repository import ProcessedEmailRepository
 from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.email_analysis import EmailInput
+from app.schemas.email_analysis import EmailInput, KnownUser
 from app.schemas.subscription import WebhookNotificationItem, WebhookNotificationPayload
 from app.services.bot_service import get_bot_service
+from app.services.conversation_service import ConversationService
 from app.services.email_analysis import Analyzer
 from app.services.task_service import TaskService
 
 logger = logging.getLogger(__name__)
 
 _WHITELIST_SKIP_MESSAGE = "Skipping message %s - no whitelist address involved"
-
-_dev_analyze = None
 
 
 class MessageOutcome(str, enum.Enum):
@@ -41,11 +43,6 @@ class MessageOutcome(str, enum.Enum):
     ALREADY_PROCESSED = "already_processed"
     WHITELIST_SKIPPED = "whitelist_skipped"
     HANDLED = "handled"
-
-
-def set_dev_analyze(fn) -> None:
-    global _dev_analyze
-    _dev_analyze = fn
 
 
 class WebhookProcessorService:
@@ -72,15 +69,30 @@ class WebhookProcessorService:
         try:
             subscription_repo = SubscriptionRepository(db)
             processed_repo = ProcessedEmailRepository(db)
+            user_repository = UserRepository(db)
+            task_repository = TaskRepository(db)
             task_service = TaskService(
-                TaskRepository(db),
-                UserRepository(db),
+                task_repository,
+                user_repository,
                 get_bot_service(),
                 TaskStatusHistoryRepository(db),
             )
+            known_users = [
+                KnownUser(email=u.email, display_name=u.display_name)
+                for u in user_repository.get_all(limit=1000)
+            ]
+            conversation_service = ConversationService(db, graph_client=self._graph)
             processed = 0
             for item in payload.value:
-                processed += await self._process_item(item, subscription_repo, processed_repo, task_service)
+                processed += await self._process_item(
+                    item,
+                    subscription_repo,
+                    processed_repo,
+                    task_service,
+                    task_repository,
+                    known_users,
+                    conversation_service,
+                )
             return processed
         finally:
             db.close()
@@ -91,6 +103,9 @@ class WebhookProcessorService:
         subscription_repo: SubscriptionRepository,
         processed_repo: ProcessedEmailRepository,
         task_service: TaskService,
+        task_repository: TaskRepository,
+        known_users: list[KnownUser],
+        conversation_service: ConversationService,
     ) -> int:
         if item.client_state != settings.webhook_client_state:
             logger.warning("Ignoring notification with invalid clientState")
@@ -126,6 +141,10 @@ class WebhookProcessorService:
                 processed_repo=processed_repo,
                 task_service=task_service,
                 created_via="webhook",
+                graph_user_id=subscription.graph_user_id,
+                known_users=known_users,
+                task_repository=task_repository,
+                conversation_service=conversation_service,
             )
             return 1 if outcome == MessageOutcome.HANDLED else 0
         except Exception as exc:
@@ -146,6 +165,10 @@ class WebhookProcessorService:
         processed_repo: ProcessedEmailRepository,
         task_service: TaskService,
         created_via: str,
+        graph_user_id: str | None = None,
+        known_users: list[KnownUser] | None = None,
+        task_repository: TaskRepository | None = None,
+        conversation_service: ConversationService | None = None,
     ) -> MessageOutcome:
         """Shared per-message pipeline used by both real-time webhook delivery and the
         scheduled mailbox sync: dedup, whitelist, parse, analyze, apply. Graph's webhook
@@ -160,23 +183,77 @@ class WebhookProcessorService:
             processed_repo.mark_processed(user_id, message.id)
             return MessageOutcome.WHITELIST_SKIPPED
 
+        if known_users is None:
+            known_users = [
+                KnownUser(email=u.email, display_name=u.display_name)
+                for u in task_service.user_repository.get_all(limit=1000)
+            ]
+        if task_repository is None:
+            task_repository = task_service.repository
+        if conversation_service is None:
+            conversation_service = ConversationService(
+                processed_repo.db, graph_client=self._graph
+            )
+
         parsed = parse_graph_message(message, user_email=user_email, user_id=str(user_id))
+
+        existing_task: Task | None = None
+        task_summary: str | None = None
+        thread_context: str | None = None
+        thread_conversation_ids: list[str] = []
+
+        if parsed.conversation_id:
+            existing_task = task_repository.get_by_conversation_id(parsed.conversation_id)
+            if existing_task is not None:
+                task_summary = existing_task.summary
+
+        if (
+            (existing_task is None or existing_task.summary is None)
+            and parsed.kind == EmailKind.REPLY
+        ):
+            try:
+                thread = await conversation_service.get_thread_for_message(
+                    user_email,
+                    message,
+                    graph_user_id=graph_user_id,
+                )
+                thread_context = format_thread_context(thread) or None
+                thread_conversation_ids = collect_thread_ids(thread)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to backtrack thread for message %s: %s",
+                    message.id,
+                    exc,
+                )
+
         email_input = EmailInput.model_validate(parsed.model_dump())
         logger.info("Email input: %s", email_input)
 
-        if _dev_analyze is not None:
-            analysis = await _dev_analyze(self._analyzer, email_input, parsed)
-        else:
-            analysis = await self._analyzer.analyze(email_input)
+        analysis = await self._analyzer.analyze(
+            email_input,
+            known_users=known_users,
+            task_summary=task_summary,
+            thread_context=thread_context,
+            refresh_summary_on_fyi=existing_task is not None,
+        )
 
         logger.info("Email analysis result: %s", analysis.model_dump_json())
 
-        task = await task_service.apply_analysis(analysis, parsed, parsed.from_address, created_via=created_via)
+        task = await task_service.apply_analysis(
+            analysis,
+            parsed,
+            parsed.from_address,
+            created_via=created_via,
+            existing_task=existing_task,
+            thread_conversation_ids=thread_conversation_ids or None,
+        )
         processed_repo.mark_processed(user_id, message.id)
         if task is not None:
             logger.info("Task %s %s from email %s", task.id, analysis.action.value, message.id)
         else:
-            logger.info("Message %s analyzed as %s, no task change", message.id, analysis.action.value)
+            logger.info(
+                "Message %s analyzed as %s, no task change", message.id, analysis.action.value
+            )
         return MessageOutcome.HANDLED
 
     async def _load_whitelisted_message(
