@@ -116,7 +116,8 @@ class TaskService:
             task_data = TaskCreate(
                 **analysis.payload.model_dump(),
                 source_email_id=metadata.message_id,
-                conversation_id=metadata.conversation_id,
+                conversation_ids=[metadata.conversation_id] if metadata.conversation_id else [],
+                internet_message_ids=[metadata.internet_message_id] if metadata.internet_message_id else [],
                 source_user=from_address,
                 source_link=metadata.web_link,
             )

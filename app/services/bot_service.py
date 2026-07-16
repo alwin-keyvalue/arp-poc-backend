@@ -62,8 +62,8 @@ def _build_task_assigned_card(task: Task) -> Dict[str, Any]:
             "wrap": True,
         },
     ]
-    if task.summary:
-        body.append({"type": "TextBlock", "text": task.summary, "wrap": True, "isSubtle": True})
+    if task.description:
+        body.append({"type": "TextBlock", "text": task.description, "wrap": True, "isSubtle": True})
 
     facts = [{"title": "Priority", "value": task.priority}, {"title": "Status", "value": task.status}]
     if task.due_date:

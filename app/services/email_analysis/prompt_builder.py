@@ -37,17 +37,17 @@ assignee: @mentioned or directly asked person in message body, without the "@" p
 watchers: other @mentions in body without the "@" prefix; exclude assignee.
 priority (default P2): P0 = urgent/ASAP/immediately/critical; P1 = important/soon/this week; P2 = no urgency stated.
 due_date: ISO 8601 with timezone; resolve relative dates from Email date (morning 09:00, afternoon 14:00, evening 18:00, EOD 17:00); null if none stated in current message.
-Sanitize title/summary for confidential/PII content; preserve assignee, watchers, status, priority, dates."""
+Sanitize title/description for confidential/PII content; preserve assignee, watchers, status, priority, dates."""
 
 _EXTRACTION_RULES: dict[IntentType, str] = {
     IntentType.NEW_TASK: """## Extract
 - title: short, action-oriented
-- summary: two concise sentences
+- description: two concise sentences
 - status: initial status (to_do unless clearly otherwise)
 - Apply all field rules above.""",
 
     IntentType.TASK_UPDATE: """## Extract changed fields only (null for unchanged)
-- due_date, assignee, watchers, status, title, summary, priority — only when explicitly changed in the message.
+- due_date, assignee, watchers, status, title, description, priority — only when explicitly changed in the message.
 - Apply all field rules above.""",
 
     IntentType.REMINDER_FOLLOW_UP: """## Extract

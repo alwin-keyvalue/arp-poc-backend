@@ -9,6 +9,9 @@ from app.models.task import Task
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskUpdate
 
+_TASK_METADATA_FIELDS = {"conversation_ids", "internet_message_ids"}
+_TASK_EXCLUDED_FIELDS = _TASK_METADATA_FIELDS | {"assignee_ids"}
+
 
 class TaskRepository:
     def __init__(self, db: Session):
@@ -19,10 +22,18 @@ class TaskRepository:
             return []
         return self.db.query(User).filter(User.id.in_(user_ids)).all()
 
+    @staticmethod
+    def _dedupe(values: Sequence[str]) -> List[str]:
+        return list(dict.fromkeys(values))
+
     def create(self, task_data: TaskCreate) -> Task:
-        data = task_data.model_dump(exclude={"assignee_ids"})
+        data = task_data.model_dump(exclude=_TASK_EXCLUDED_FIELDS)
         task = Task(**data)
         task.assignees = self._resolve_users(task_data.assignee_ids)
+        task.metadata_ = {
+            "conversation_ids": self._dedupe(task_data.conversation_ids),
+            "internet_message_ids": self._dedupe(task_data.internet_message_ids),
+        }
         self.db.add(task)
         self.db.commit()
         self.db.refresh(task)
@@ -37,7 +48,10 @@ class TaskRepository:
     def get_by_conversation_id(self, conversation_id: str) -> Optional[Task]:
         return (
             self.db.query(Task)
-            .filter(Task.conversation_id == conversation_id, Task.is_deleted.is_(False))
+            .filter(
+                Task.metadata_.contains({"conversation_ids": [conversation_id]}),
+                Task.is_deleted.is_(False),
+            )
             .order_by(Task.last_update.desc())
             .first()
         )
@@ -52,10 +66,20 @@ class TaskRepository:
         )
 
     def update(self, task: Task, task_data: TaskUpdate) -> Task:
-        for field, value in task_data.model_dump(exclude_unset=True, exclude={"assignee_ids"}).items():
+        for field, value in task_data.model_dump(exclude_unset=True, exclude=_TASK_EXCLUDED_FIELDS).items():
             setattr(task, field, value)
         if "assignee_ids" in task_data.model_fields_set:
             task.assignees = self._resolve_users(task_data.assignee_ids or [])
+        fields_set = task_data.model_fields_set
+        if _TASK_METADATA_FIELDS & fields_set:
+            # Reassign a new dict (rather than mutate in place) so SQLAlchemy detects the change
+            # without needing sqlalchemy.ext.mutable.MutableDict.
+            metadata = dict(task.metadata_ or {})
+            if "conversation_ids" in fields_set:
+                metadata["conversation_ids"] = self._dedupe(task_data.conversation_ids or [])
+            if "internet_message_ids" in fields_set:
+                metadata["internet_message_ids"] = self._dedupe(task_data.internet_message_ids or [])
+            task.metadata_ = metadata
         self.db.commit()
         self.db.refresh(task)
         return task

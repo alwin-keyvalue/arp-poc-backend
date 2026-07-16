@@ -78,7 +78,7 @@ class IntentResponse(BaseModel):
 
 class TaskCreatePayload(BaseModel):
     title: str
-    summary: Optional[str] = None
+    description: Optional[str] = None
     assignee: Optional[str] = None
     watchers: List[str] = []
     status: TaskStatus = TaskStatus.TO_DO
@@ -88,7 +88,7 @@ class TaskCreatePayload(BaseModel):
 
 class TaskUpdatePayload(BaseModel):
     title: Optional[str] = None
-    summary: Optional[str] = None
+    description: Optional[str] = None
     assignee: Optional[str] = None
     watchers: Optional[List[str]] = None
     status: Optional[TaskStatus] = None

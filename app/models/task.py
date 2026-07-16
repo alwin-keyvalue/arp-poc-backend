@@ -2,6 +2,7 @@ import enum
 import uuid
 
 from sqlalchemy import Boolean, Column, Date, DateTime, JSON, String, Text, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -30,11 +31,14 @@ class Task(Base):
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
     source_email_id = Column(String(255), nullable=True)
-    conversation_id = Column(String(255), nullable=True)
     source_user = Column(String(255), nullable=True)
     source_link = Column(String(1024), nullable=True)
+    # "metadata" is reserved on declarative models (Base.metadata), so the Python attribute
+    # is named metadata_ while the actual DB column stays "metadata".
+    metadata_ = Column("metadata", JSONB, nullable=False, default=dict, server_default="{}")
     labels = Column(JSON, nullable=False, default=list)
     status = Column(String(50), nullable=False, default=TaskStatus.TO_DO.value)
     priority = Column(String(50), nullable=False, default=TaskPriority.P2.value)
@@ -48,3 +52,11 @@ class Task(Base):
     @property
     def assignee_ids(self) -> list:
         return [user.id for user in self.assignees]
+
+    @property
+    def conversation_ids(self) -> list:
+        return (self.metadata_ or {}).get("conversation_ids", [])
+
+    @property
+    def internet_message_ids(self) -> list:
+        return (self.metadata_ or {}).get("internet_message_ids", [])
