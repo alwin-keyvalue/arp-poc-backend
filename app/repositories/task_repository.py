@@ -3,7 +3,7 @@ from datetime import date
 from typing import List, Optional, Sequence
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.task import Task
 from app.models.user import User
@@ -40,7 +40,7 @@ class TaskRepository:
         return task
 
     def get_by_id(self, task_id: uuid.UUID, *, include_deleted: bool = False) -> Optional[Task]:
-        query = self.db.query(Task).filter(Task.id == task_id)
+        query = self.db.query(Task).options(selectinload(Task.assignees)).filter(Task.id == task_id)
         if not include_deleted:
             query = query.filter(Task.is_deleted.is_(False))
         return query.first()
@@ -59,6 +59,7 @@ class TaskRepository:
     def get_all(self, skip: int = 0, limit: int = 100) -> List[Task]:
         return (
             self.db.query(Task)
+            .options(selectinload(Task.assignees))
             .filter(Task.is_deleted.is_(False))
             .offset(skip)
             .limit(limit)
@@ -92,6 +93,7 @@ class TaskRepository:
     def get_created_between(self, from_date: date, to_date: date) -> List[Task]:
         return (
             self.db.query(Task)
+            .options(selectinload(Task.assignees))
             .filter(Task.is_deleted.is_(False))
             .filter(func.date(Task.created_at) >= from_date, func.date(Task.created_at) <= to_date)
             .order_by(Task.created_at.asc())
