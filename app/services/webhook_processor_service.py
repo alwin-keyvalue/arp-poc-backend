@@ -178,7 +178,7 @@ class WebhookProcessorService:
         scheduled mailbox sync: dedup, whitelist, parse, analyze, apply. Graph's webhook
         delivery is at-least-once and the scheduled sync can overlap it, so `processed_repo`
         is checked/marked here rather than only in one caller."""
-        if processed_repo.is_processed(user_id, message.id):
+        if processed_repo.is_processed(message.internet_message_id):
             logger.info("Skipping already-processed message %s for %s", message.id, user_email)
             return MessageOutcome.ALREADY_PROCESSED
 
@@ -186,6 +186,8 @@ class WebhookProcessorService:
             logger.info(_WHITELIST_SKIP_MESSAGE, message.id)
             processed_repo.mark_processed(user_id, message.internet_message_id)
             return MessageOutcome.WHITELIST_SKIPPED
+
+        processed_repo.mark_processed(user_id, message.internet_message_id)
 
         if known_users is None:
             known_users = [
@@ -255,7 +257,6 @@ class WebhookProcessorService:
             existing_task=existing_task,
             thread_conversation_ids=thread_conversation_ids or None,
         )
-        processed_repo.mark_processed(user_id, message.internet_message_id)
         if task is not None:
             logger.info("Task %s %s from email %s", task.id, analysis.action.value, message.id)
         else:

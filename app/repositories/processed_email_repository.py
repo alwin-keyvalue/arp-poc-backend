@@ -10,7 +10,7 @@ class ProcessedEmailRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def is_processed(self, user_id: uuid.UUID, internet_message_id: str) -> bool:
+    def is_processed(self, internet_message_id: str) -> bool:
         return (
             self.db.query(ProcessedEmail.id)
             .filter(ProcessedEmail.message_id == internet_message_id)
