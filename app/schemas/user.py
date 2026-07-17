@@ -7,19 +7,19 @@ from pydantic import BaseModel, EmailStr, Field
 class UserCreate(BaseModel):
     email: EmailStr
     display_name: str | None = None
-    zone: str | None = None
+    coverage_topics: list[str] = Field(default_factory=list)
 
 
 class UserUpdate(BaseModel):
     display_name: str | None = None
-    zone: str | None = None
+    coverage_topics: list[str] | None = None
 
 
 class UserResponse(BaseModel):
     id: UUID
     email: str
     display_name: str | None
-    zone: str | None
+    coverage_topics: list[str] = Field(default_factory=list)
     is_deleted: bool
     created_at: datetime
 

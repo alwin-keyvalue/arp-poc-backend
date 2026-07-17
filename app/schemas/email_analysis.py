@@ -12,6 +12,7 @@ from app.models.task import TaskPriority, TaskStatus
 class KnownUser(BaseModel):
     email: str
     display_name: Optional[str] = None
+    coverage_topics: List[str] = Field(default_factory=list)
 
 
 class EmailInput(BaseModel):

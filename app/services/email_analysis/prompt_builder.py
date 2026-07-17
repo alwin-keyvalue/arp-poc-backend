@@ -1,4 +1,4 @@
-from app.schemas.email_analysis import LLMEmailContext, IntentType
+from app.schemas.email_analysis import LLMEmailContext, IntentType, KnownUser
 
 
 def _format_email_context(llm_ctx: LLMEmailContext) -> str:
@@ -79,32 +79,37 @@ _EXTRACTION_RULES: dict[IntentType, str] = {
 
 _SANITIZATION_RULES = """## Sanitize title/description for confidential/PII content; preserve status, priority, dates."""
 
-_COVERAGE_MAP = """## Coverage map (topic/region → people)
-- Amin, Hamza — US Tech
-- Salman, Masira — Non US Tech
-- Nasser — China, Commodities, Defence, Industrials, Oil & Gas
-- Salman — Technical Analysis
-- Hugh, Amin — Global Macro
-- Masira, Amin — Global Financials
-- Masira, Nasser — Power, Nuclear
-- Amin — Crypto
-- Masira — All Asia"""
 
-_ASSIGNEE_RULES = f"""## Assignee rules
+def _coverage_map_from_known_users(known_users: list[KnownUser]) -> str:
+    lines = ["## Coverage map (topic/region → people)"]
+    for user in known_users:
+        topics = [t.strip() for t in (user.coverage_topics or []) if t and str(t).strip()]
+        if not topics:
+            continue
+        label = user.display_name.strip() if user.display_name and user.display_name.strip() else user.email
+        lines.append(f"- {label} — {', '.join(topics)}")
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines)
+
+
+def _assignee_rules(llm_ctx: LLMEmailContext) -> str:
+    coverage = _coverage_map_from_known_users(llm_ctx.known_users)
+    coverage_block = f"\n{coverage}\n" if coverage else "\n"
+    return f"""## Assignee rules
 A task may have multiple assignees. Assignees MUST be users from the Known users list — return their email addresses exactly as listed. Never invent people who are not in Known users.
 
 Build assignees as a UNION of all sources below, then dedupe by email. Drop any mention or coverage name that does not match a Known user (by display name or email). Coverage never removes To/Cc/Bcc known users.
 
 1. Explicit @mentions or tags in the Current message that match a Known user
-2. REQUIRED: every To, Cc, or Bcc address that appears in Known users MUST be an assignee (additive — do not drop them when coverage matches)
-3. Coverage map (additive): scan Subject + Current message for matching topics/regions (case-insensitive; "oil" matches "Oil & Gas"; "Global Financials" matches Masira, Amin). For every match, ADD the mapped person only if they are in Known users.
+2. @team (case-insensitive): if Current message explicitly mentions @team, assignees MUST include every Known user (emails exactly as listed). @team alone is enough to require the full Known users set; still UNION with other sources below.
+3. REQUIRED: every To, Cc, or Bcc address that appears in Known users MUST be an assignee (additive — do not drop them when coverage matches)
+4. Coverage map (additive): scan Subject + Current message for matching topics/regions (case-insensitive; "oil" matches "Oil & Gas"; "Global Financials" matches Masira, Amin). For every match, ADD the mapped person only if they are in Known users.
    Example: To aleena@... with body "report on Global Financials" and Aleena, Masira, Amin in Known users → aleena@..., masira@..., amin@...
-4. If nothing can be matched to Known users, return an empty assignees list
-
-{_COVERAGE_MAP}
-
+5. If nothing can be matched to Known users, return an empty assignees list
+{coverage_block}
 ## Assignees final check
-Every assignees entry must be an email from Known users. Re-check To/Cc/Bcc: any Known user there must appear in assignees. Then add coverage matches. Coverage alone is never enough when Known To/Cc/Bcc recipients exist."""
+Every assignees entry must be an email from Known users. If @team was mentioned, every Known user email must appear in assignees. Re-check To/Cc/Bcc: any Known user there must appear in assignees. Then add coverage matches. Coverage alone is never enough when Known To/Cc/Bcc recipients exist."""
 
 
 def intent_prompt(llm_ctx: LLMEmailContext) -> tuple[str, str]:
@@ -124,7 +129,7 @@ def _include_assignee_rules(intent: IntentType) -> bool:
 
 def extraction_prompt(intent: IntentType, llm_ctx: LLMEmailContext) -> tuple[str, str]:
     field_rules = f"\n{_FIELD_RULES}\n" if intent != IntentType.REMINDER_FOLLOW_UP else ""
-    assignee_rules = f"\n{_ASSIGNEE_RULES}\n" if _include_assignee_rules(intent) else ""
+    assignee_rules = f"\n{_assignee_rules(llm_ctx)}\n" if _include_assignee_rules(intent) else ""
 
     system = f"""You are an email task field extractor for a task management system.
 Classified intent: {intent.value}
