@@ -13,6 +13,7 @@ from app.config import settings
 from app.core.internal_auth import verify_internal_auth_secret
 from app.dependencies import get_analyzer, get_http_client
 from app.services.mailbox_sync_service import MailboxSyncService
+from app.services.subscription_service import run_renew_all
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/internal", tags=["internal"])
 
 class JobName(str, enum.Enum):
     SYNC_MAILBOXES = "sync_mailboxes"
+    RENEW_GRAPH_SUBSCRIPTION = "renew_graph_subscription"
 
 
 class JobParams(BaseModel):
@@ -34,6 +36,10 @@ class SyncMailboxesParams(JobParams):
     lookback_days: Optional[int] = Field(default=None, ge=1, le=365)
     # When omitted, every subscribed user's mailbox is synced; when given, only these.
     user_ids: Optional[List[uuid.UUID]] = Field(default=None, min_length=1)
+
+
+class RenewGraphSubscriptionParams(JobParams):
+    """No parameters — renews every Graph subscription on record."""
 
 
 def _build_sync_mailboxes_job(
@@ -52,6 +58,12 @@ def _build_sync_mailboxes_job(
     return functools.partial(service.sync_all_users, user_ids=params.user_ids)
 
 
+def _build_renew_graph_subscription_job(
+    http_client: httpx.AsyncClient, _params: RenewGraphSubscriptionParams
+) -> Callable[[], Awaitable[Any]]:
+    return functools.partial(run_renew_all, http_client)
+
+
 @dataclass(frozen=True)
 class JobSpec:
     params_model: Type[JobParams]
@@ -60,6 +72,10 @@ class JobSpec:
 
 JOB_REGISTRY: Dict[JobName, JobSpec] = {
     JobName.SYNC_MAILBOXES: JobSpec(params_model=SyncMailboxesParams, factory=_build_sync_mailboxes_job),
+    JobName.RENEW_GRAPH_SUBSCRIPTION: JobSpec(
+        params_model=RenewGraphSubscriptionParams,
+        factory=_build_renew_graph_subscription_job,
+    ),
 }
 assert set(JOB_REGISTRY) == set(JobName), "JOB_REGISTRY must have exactly one entry per JobName"
 
