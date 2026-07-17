@@ -3,16 +3,18 @@ import functools
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Type
 
 import httpx
 from fastapi import APIRouter, Body, BackgroundTasks, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, model_validator
 
 from app.config import settings
 from app.core.internal_auth import verify_internal_auth_secret
 from app.dependencies import get_analyzer, get_http_client
 from app.services.mailbox_sync_service import MailboxSyncService
+from app.services.report_service import default_report_date_range, run_task_report
 from app.services.subscription_service import run_renew_all
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,7 @@ router = APIRouter(prefix="/internal", tags=["internal"])
 class JobName(str, enum.Enum):
     SYNC_MAILBOXES = "sync_mailboxes"
     RENEW_GRAPH_SUBSCRIPTION = "renew_graph_subscription"
+    TASK_REPORT = "task_report"
 
 
 class JobParams(BaseModel):
@@ -40,6 +43,25 @@ class SyncMailboxesParams(JobParams):
 
 class RenewGraphSubscriptionParams(JobParams):
     """No parameters — renews every Graph subscription on record."""
+
+
+class TaskReportParams(JobParams):
+    recipients: List[EmailStr] = Field(min_length=1)
+    # Omitted dates default to yesterday; a single date fills the other side.
+    from_date: Optional[date] = None
+    to_date: Optional[date] = None
+
+    @model_validator(mode="after")
+    def resolve_date_range(self) -> "TaskReportParams":
+        if self.from_date is None and self.to_date is None:
+            self.from_date, self.to_date = default_report_date_range()
+        elif self.from_date is None:
+            self.from_date = self.to_date
+        elif self.to_date is None:
+            self.to_date = self.from_date
+        if self.from_date > self.to_date:
+            raise ValueError("from_date must not be after to_date")
+        return self
 
 
 def _build_sync_mailboxes_job(
@@ -64,6 +86,18 @@ def _build_renew_graph_subscription_job(
     return functools.partial(run_renew_all, http_client)
 
 
+def _build_task_report_job(
+    http_client: httpx.AsyncClient, params: TaskReportParams
+) -> Callable[[], Awaitable[Any]]:
+    return functools.partial(
+        run_task_report,
+        http_client,
+        params.from_date,
+        params.to_date,
+        [str(recipient) for recipient in params.recipients],
+    )
+
+
 @dataclass(frozen=True)
 class JobSpec:
     params_model: Type[JobParams]
@@ -76,6 +110,7 @@ JOB_REGISTRY: Dict[JobName, JobSpec] = {
         params_model=RenewGraphSubscriptionParams,
         factory=_build_renew_graph_subscription_job,
     ),
+    JobName.TASK_REPORT: JobSpec(params_model=TaskReportParams, factory=_build_task_report_job),
 }
 assert set(JOB_REGISTRY) == set(JobName), "JOB_REGISTRY must have exactly one entry per JobName"
 
@@ -95,7 +130,11 @@ async def run_job(
     try:
         params = spec.params_model.model_validate(raw_params)
     except ValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+        # include_context=False: ctx can hold raw Exception objects that aren't JSON-serializable.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(include_context=False),
+        ) from exc
 
     job = spec.factory(http_client, params)
     logger.info(

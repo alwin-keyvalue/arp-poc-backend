@@ -1,11 +1,13 @@
 import logging
-from datetime import date
+from datetime import date, timedelta
 from html import escape
 from typing import List
 
+import httpx
 from fastapi import HTTPException, status
 
 from app.config import settings
+from app.database import SessionLocal
 from app.integrations.microsoft_graph.client import GraphClient, GraphClientError
 from app.models.task import Task
 from app.repositories.task_repository import TaskRepository
@@ -48,7 +50,7 @@ class ReportService:
         <html>
           <body style="font-family: sans-serif;">
             <h2>Task Status Report</h2>
-            <p>{from_date.isoformat()} to {to_date.isoformat()}</p>
+            {f"<p>Report for {from_date.isoformat()}</p>" if from_date == to_date else f"<p>Report for {from_date.isoformat()} to {to_date.isoformat()}</p>"}
             <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse;">
               <thead>
                 <tr>
@@ -96,3 +98,35 @@ class ReportService:
                 ),
             ) from exc
         return len(tasks)
+
+
+async def run_task_report(
+    http_client: httpx.AsyncClient,
+    from_date: date,
+    to_date: date,
+    recipients: List[str],
+) -> int | None:
+    """Background job: opens its own DB session, logs outcome, safe after HTTP 202."""
+    db = SessionLocal()
+    try:
+        service = ReportService(TaskRepository(db), UserRepository(db), GraphClient(http_client))
+        task_count = await service.send_task_status_report(from_date, to_date, recipients)
+        logger.info(
+            "Task report sent: from=%s to=%s recipients=%d task_count=%d",
+            from_date.isoformat(),
+            to_date.isoformat(),
+            len(recipients),
+            task_count,
+        )
+        return task_count
+    except Exception:
+        logger.exception("Task report job failed unexpectedly")
+        return None
+    finally:
+        db.close()
+
+
+def default_report_date_range() -> tuple[date, date]:
+    """Yesterday's calendar day — stable even if the cron fires late."""
+    yesterday = date.today() - timedelta(days=1)
+    return yesterday, yesterday
