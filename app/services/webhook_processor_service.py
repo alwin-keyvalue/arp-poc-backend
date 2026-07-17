@@ -78,7 +78,11 @@ class WebhookProcessorService:
                 TaskStatusHistoryRepository(db),
             )
             known_users = [
-                KnownUser(email=u.email, display_name=u.display_name)
+                KnownUser(
+                    email=u.email,
+                    display_name=u.display_name,
+                    coverage_topics=list(u.coverage_topics or []),
+                )
                 for u in user_repository.get_all(limit=1000)
             ]
             conversation_service = ConversationService(db, graph_client=self._graph)
@@ -180,12 +184,16 @@ class WebhookProcessorService:
 
         if not self._passes_email_whitelist(message):
             logger.info(_WHITELIST_SKIP_MESSAGE, message.id)
-            processed_repo.mark_processed(user_id, message.id)
+            processed_repo.mark_processed(user_id, message.internet_message_id)
             return MessageOutcome.WHITELIST_SKIPPED
 
         if known_users is None:
             known_users = [
-                KnownUser(email=u.email, display_name=u.display_name)
+                KnownUser(
+                    email=u.email,
+                    display_name=u.display_name,
+                    coverage_topics=list(u.coverage_topics or []),
+                )
                 for u in task_service.user_repository.get_all(limit=1000)
             ]
         if task_repository is None:
@@ -247,7 +255,7 @@ class WebhookProcessorService:
             existing_task=existing_task,
             thread_conversation_ids=thread_conversation_ids or None,
         )
-        processed_repo.mark_processed(user_id, message.id)
+        processed_repo.mark_processed(user_id, message.internet_message_id)
         if task is not None:
             logger.info("Task %s %s from email %s", task.id, analysis.action.value, message.id)
         else:

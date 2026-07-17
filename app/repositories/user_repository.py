@@ -16,12 +16,12 @@ class UserRepository:
         *,
         email: str,
         display_name: str | None = None,
-        zone: str | None = None,
+        coverage_topics: list[str] | None = None,
     ) -> User:
         user = User(
             email=email.strip().lower(),
             display_name=display_name,
-            zone=zone,
+            coverage_topics=list(coverage_topics or []),
             is_deleted=False,
         )
         self.db.add(user)
@@ -69,11 +69,17 @@ class UserRepository:
             .all()
         )
 
-    def update(self, user: User, *, display_name: str | None = None, zone: str | None = None) -> User:
+    def update(
+        self,
+        user: User,
+        *,
+        display_name: str | None = None,
+        coverage_topics: list[str] | None = None,
+    ) -> User:
         if display_name is not None:
             user.display_name = display_name
-        if zone is not None:
-            user.zone = zone
+        if coverage_topics is not None:
+            user.coverage_topics = list(coverage_topics)
         self.db.commit()
         self.db.refresh(user)
         return user

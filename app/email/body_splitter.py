@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from app.email.disclaimer import strip_regulatory_disclaimer
 from app.email.html_to_text import html_to_text
 
 GMAIL_QUOTE_CLASSES = {"gmail_quote", "gmail_quote_container"}
@@ -220,6 +221,6 @@ def _format_forwarded_body(quoted_text: str) -> str:
 
 
 def _clean_body_text(text: str) -> str:
-    cleaned = text.strip()
+    cleaned = strip_regulatory_disclaimer(text.strip())
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned

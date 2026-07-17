@@ -1,7 +1,6 @@
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
 
 from app.repositories.user_repository import UserRepository
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
@@ -20,14 +19,14 @@ class UserService:
             user = self._users.update(
                 existing,
                 display_name=data.display_name,
-                zone=data.zone,
+                coverage_topics=data.coverage_topics,
             )
             return UserResponse.model_validate(user)
 
         user = self._users.create(
             email=data.email,
             display_name=data.display_name,
-            zone=data.zone,
+            coverage_topics=data.coverage_topics,
         )
         return UserResponse.model_validate(user)
 
@@ -47,7 +46,7 @@ class UserService:
         updated = self._users.update(
             user,
             display_name=data.display_name,
-            zone=data.zone,
+            coverage_topics=data.coverage_topics,
         )
         return UserResponse.model_validate(updated)
 
