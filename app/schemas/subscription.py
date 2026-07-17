@@ -37,11 +37,6 @@ class RenewAllReport(BaseModel):
     results: list[RenewSubscriptionResult]
 
 
-class RenewAllAcceptedResponse(BaseModel):
-    status: Literal["accepted"] = "accepted"
-    message: str = "Subscription renewal queued for background processing"
-
-
 class EncryptedContent(BaseModel):
     data: str
     data_key: str = Field(alias="dataKey")
