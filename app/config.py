@@ -88,8 +88,8 @@ class Settings:
         # requires a specific sending mailbox, not a generic "from" address).
         self.reports_sender_mailbox = os.getenv("REPORTS_SENDER_MAILBOX", "")
 
-        # Shared secret for the internal scheduled-sync endpoint (cron trigger, not a Teams user).
-        self.internal_sync_secret = os.getenv("INTERNAL_SYNC_SECRET", "")
+        # Shared secret for the internal endpoints.
+        self.internal_auth_secret = os.getenv("INTERNAL_AUTH_SECRET", "")
         self.mailbox_sync_lookback_days = int(os.getenv("MAILBOX_SYNC_LOOKBACK_DAYS", "30"))
 
     @property

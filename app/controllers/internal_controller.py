@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Type
 
 import httpx
-from fastapi import APIRouter, Body, BackgroundTasks, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Body, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import settings
+from app.core.internal_auth import verify_internal_auth_secret
 from app.dependencies import get_analyzer, get_http_client
 from app.services.mailbox_sync_service import MailboxSyncService
 
@@ -63,15 +64,10 @@ JOB_REGISTRY: Dict[JobName, JobSpec] = {
 assert set(JOB_REGISTRY) == set(JobName), "JOB_REGISTRY must have exactly one entry per JobName"
 
 
-def _verify_sync_secret(x_internal_secret: str = Header(...)) -> None:
-    if not settings.internal_sync_secret or x_internal_secret != settings.internal_sync_secret:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing sync secret")
-
-
 @router.post(
     "/jobs/{job_name}",
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(_verify_sync_secret)],
+    dependencies=[Depends(verify_internal_auth_secret)],
 )
 async def run_job(
     job_name: JobName,
