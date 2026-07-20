@@ -17,6 +17,7 @@ from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
+from app.schemas.email_analysis import KnownUser
 from app.services.bot_service import get_bot_service
 from app.services.email_analysis import Analyzer
 from app.services.task_service import TaskService
@@ -49,6 +50,20 @@ class MailboxSyncService:
             subscriptions_by_user: dict[uuid.UUID, GraphSubscriptionRecord] = {}
             for record in records:
                 subscriptions_by_user.setdefault(record.user_id, record)
+
+            # Built once per run and reused for every user/message: KnownUser is a plain
+            # Pydantic value with no session dependency, so it's safe to share across the
+            # concurrent _sync_user tasks below. Without this, process_message's own
+            # known_users fallback would otherwise re-run this same query on every single
+            # message processed (N fetches of up to 1000 rows each, for N messages).
+            known_users = [
+                KnownUser(
+                    email=u.email,
+                    display_name=u.display_name,
+                    coverage_topics=list(u.coverage_topics or []),
+                )
+                for u in UserRepository(db).get_all(limit=1000)
+            ]
         finally:
             db.close()
 
@@ -68,7 +83,7 @@ class MailboxSyncService:
 
         async def _sync_one(user_id: uuid.UUID, record: GraphSubscriptionRecord) -> None:
             async with semaphore:
-                await self._sync_user(user_id, record.graph_user_id, record.user.email)
+                await self._sync_user(user_id, record.graph_user_id, record.user.email, known_users)
 
         results = await asyncio.gather(
             *(_sync_one(user_id, record) for user_id, record in subscriptions_by_user.items()),
@@ -86,7 +101,13 @@ class MailboxSyncService:
         )
         return len(subscriptions_by_user)
 
-    async def _sync_user(self, user_id: uuid.UUID, graph_user_id: str, user_email: str) -> None:
+    async def _sync_user(
+        self,
+        user_id: uuid.UUID,
+        graph_user_id: str,
+        user_email: str,
+        known_users: list[KnownUser],
+    ) -> None:
         since = datetime.now(timezone.utc) - timedelta(days=self._lookback_days)
         messages = await self._graph.list_messages_since(graph_user_id, since)
 
@@ -110,6 +131,7 @@ class MailboxSyncService:
                         task_service=task_service,
                         created_via="sync_job",
                         graph_user_id=graph_user_id,
+                        known_users=known_users,
                     )
                     outcome_counts[outcome.value] += 1
                 except Exception:

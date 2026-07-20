@@ -37,7 +37,6 @@ class Settings:
             if origin.strip()
         ]
         self.bot_app_id = os.getenv("AZURE_CLIENT_ID")
-        self.bot_app_password = os.getenv("BOT_APP_PASSWORD")
         self.bot_app_tenant_id = os.getenv("AZURE_TENANT_ID")
 
         self.llm_provider = os.getenv("LLM_PROVIDER", "gemini")
@@ -57,6 +56,10 @@ class Settings:
 
         self.azure_tenant_id = os.getenv("AZURE_TENANT_ID", "")
         self.azure_client_id = os.getenv("AZURE_CLIENT_ID", "")
+        # Same Azure AD App Registration secret is used both for Graph app-only auth (client
+        # credentials flow) and Bot Framework channel auth ("Microsoft App Password" in Bot
+        # Framework's own terminology) — one env var, not two, so rotating it can't drift
+        # out of sync between the two call sites.
         self.azure_client_secret = os.getenv("AZURE_CLIENT_SECRET", "")
         self.webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
         self.webhook_client_state = os.getenv("WEBHOOK_CLIENT_STATE", "")
@@ -91,6 +94,10 @@ class Settings:
         # Shared secret for the internal endpoints.
         self.internal_auth_secret = os.getenv("INTERNAL_AUTH_SECRET", "")
         self.mailbox_sync_lookback_days = int(os.getenv("MAILBOX_SYNC_LOOKBACK_DAYS", "30"))
+
+    @property
+    def bot_app_password(self) -> str:
+        return self.azure_client_secret
 
     @property
     def microsoft_graph_webhook_url(self) -> str:

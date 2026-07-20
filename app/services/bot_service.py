@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.core.graph_client import get_user_email
+from app.integrations.microsoft_graph.client import GraphClient
 from app.models.task import Task, TaskStatus
 from app.models.user import User
 from app.repositories.task_repository import TaskRepository
@@ -128,6 +128,18 @@ class BotService:
             await build_subscription_service(db, http_client).subscribe_user(email)
         logger.info("Subscribed %s for inbox message notifications", email)
 
+    @staticmethod
+    async def _resolve_teams_user_email(aad_object_id: Optional[str]) -> Optional[str]:
+        """Look up a Teams user's email via Graph app-only auth. Returns None on any failure."""
+        if not aad_object_id:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                return await GraphClient(http_client).get_user_email(aad_object_id)
+        except Exception:
+            logger.exception("Failed to fetch user email from Graph for %s", aad_object_id)
+            return None
+
     async def _handle_task_card_action(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
         value = activity.value
         task_action = value.get("taskAction")
@@ -169,7 +181,7 @@ class BotService:
 
     async def _handle_bot_installed(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
         aad_object_id = activity.from_property.aad_object_id if activity.from_property else None
-        email = await get_user_email(aad_object_id)
+        email = await self._resolve_teams_user_email(aad_object_id)
         logger.info("Teams user email: %s (aadObjectId=%s)", email, aad_object_id)
 
         if email:
@@ -189,7 +201,14 @@ class BotService:
         await turn_context.send_activity(GREETING_TEXT)
 
     async def _turn_logic(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
-        logger.info("Teams activity received: %s", activity.serialize())
+        # activity.serialize() includes message text and sender name/id — sensitive content.
+        # Log only the shape needed to trace routing, never the raw activity.
+        is_card_action = (
+            activity.type == "message"
+            and isinstance(activity.value, dict)
+            and activity.value.get("verb") == TASK_ACTION_VERB
+        )
+        logger.info("Teams activity received: type=%s is_card_action=%s", activity.type, is_card_action)
 
         if activity.type == "message" and isinstance(activity.value, dict) and activity.value.get("verb") == TASK_ACTION_VERB:
             await self._handle_task_card_action(activity, turn_context, db)

@@ -119,11 +119,24 @@ class SubscriptionService:
         if not records:
             raise HTTPException(status_code=404, detail=f"No subscription found for {email}.")
 
+        await self._unsubscribe_records(records, email)
+        return {"unsubscribed": email}
+
+    async def unsubscribe_user_if_subscribed(self, email: str) -> None:
+        """Like unsubscribe_user, but a no-op rather than a 404 when the user has no
+        subscriptions — for cleanup on user deletion, where "nothing to clean up" isn't
+        an error. Must be called before the user is soft-deleted: get_all_by_email filters
+        out deleted users, so calling this after soft-delete would silently find nothing."""
+        records = self._subscriptions.get_all_by_email(email)
+        if records:
+            await self._unsubscribe_records(records, email)
+
+    async def _unsubscribe_records(
+        self, records: list[GraphSubscriptionRecord], email: str
+    ) -> None:
         for record in records:
             await self._delete_graph_subscription(record.id, email)
-
         self._subscriptions.delete_many(records)
-        return {"unsubscribed": email}
 
     def _get_expiration_datetime(self) -> str:
         expires = datetime.now(timezone.utc) + timedelta(

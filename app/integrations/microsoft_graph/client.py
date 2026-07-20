@@ -71,6 +71,14 @@ class GraphClient:
         data = await self._request("GET", f"/users/{quote(email)}")
         return GraphUser.from_graph_response(data)
 
+    async def get_user_email(self, aad_object_id: str) -> str | None:
+        """Look up a Teams user's email by Azure AD object id. `mail` is null for some
+        account types, so `userPrincipalName` is used as a fallback."""
+        data = await self._request(
+            "GET", f"/users/{quote(aad_object_id)}?$select=mail,userPrincipalName"
+        )
+        return data.get("mail") or data.get("userPrincipalName")
+
     async def get_message(self, user_id: str, message_id: str) -> GraphMessage:
         path = f"/users/{user_id}/messages/{message_id}?$select={MESSAGE_SELECT}"
         data = await self._request("GET", path)
