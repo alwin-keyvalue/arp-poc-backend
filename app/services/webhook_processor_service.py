@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import logging
 import uuid
+from collections import Counter
 
 import httpx
 
@@ -45,6 +46,12 @@ class MessageOutcome(str, enum.Enum):
     HANDLED = "handled"
 
 
+# _process_item can also reject a notification before it ever reaches process_message
+# (bad clientState, unknown subscription, unresolvable message id, fetch/parse failure) —
+# this is a distinct bucket from any MessageOutcome so batch summaries can show it separately.
+_REJECTED = "rejected"
+
+
 class WebhookProcessorService:
     def __init__(
         self,
@@ -64,6 +71,8 @@ class WebhookProcessorService:
                 "Rich notification missing validationTokens (often means Graph Change Tracking "
                 "app role assignment is misconfigured); continuing with clientState check"
             )
+
+        logger.info("Processing webhook notification batch: %d item(s)", len(payload.value))
 
         db = SessionLocal()
         try:
@@ -86,9 +95,9 @@ class WebhookProcessorService:
                 for u in user_repository.get_all(limit=1000)
             ]
             conversation_service = ConversationService(db, graph_client=self._graph)
-            processed = 0
+            outcome_counts: Counter = Counter()
             for item in payload.value:
-                processed += await self._process_item(
+                outcome = await self._process_item(
                     item,
                     subscription_repo,
                     processed_repo,
@@ -97,7 +106,19 @@ class WebhookProcessorService:
                     known_users,
                     conversation_service,
                 )
-            return processed
+                outcome_counts[outcome] += 1
+
+            handled = outcome_counts[MessageOutcome.HANDLED.value]
+            logger.info(
+                "Webhook notification batch finished: %d item(s) total, handled=%d "
+                "already_processed=%d whitelist_skipped=%d rejected=%d",
+                len(payload.value),
+                handled,
+                outcome_counts[MessageOutcome.ALREADY_PROCESSED.value],
+                outcome_counts[MessageOutcome.WHITELIST_SKIPPED.value],
+                outcome_counts[_REJECTED],
+            )
+            return handled
         finally:
             db.close()
 
@@ -110,15 +131,15 @@ class WebhookProcessorService:
         task_repository: TaskRepository,
         known_users: list[KnownUser],
         conversation_service: ConversationService,
-    ) -> int:
+    ) -> str:
         if item.client_state != settings.webhook_client_state:
             logger.warning("Ignoring notification with invalid clientState")
-            return 0
+            return _REJECTED
 
         subscription = subscription_repo.get_by_id(item.subscription_id)
         if not subscription or not subscription.user or subscription.user.is_deleted:
             logger.warning("Unknown or deleted subscription id: %s", item.subscription_id)
-            return 0
+            return _REJECTED
 
         message_id = self._resolve_message_id(item)
         if not message_id:
@@ -126,7 +147,7 @@ class WebhookProcessorService:
                 "Could not resolve message id from notification for subscription %s",
                 item.subscription_id,
             )
-            return 0
+            return _REJECTED
 
         try:
             message = await self._load_whitelisted_message(
@@ -136,7 +157,7 @@ class WebhookProcessorService:
                 mailbox_email=subscription.user.email,
             )
             if message is None:
-                return 0
+                return MessageOutcome.WHITELIST_SKIPPED.value
 
             outcome = await self.process_message(
                 message,
@@ -150,7 +171,7 @@ class WebhookProcessorService:
                 task_repository=task_repository,
                 conversation_service=conversation_service,
             )
-            return 1 if outcome == MessageOutcome.HANDLED else 0
+            return outcome.value
         except Exception as exc:
             logger.warning(
                 "Failed to fetch or parse message %s for user %s: %s",
@@ -158,7 +179,7 @@ class WebhookProcessorService:
                 subscription.graph_user_id,
                 exc,
             )
-            return 0
+            return _REJECTED
 
     async def process_message(
         self,

@@ -136,6 +136,10 @@ class TaskService:
         thread_conversation_ids: Optional[List[str]] = None,
     ) -> Optional[Task]:
         if analysis.action == ActionType.REMINDER:
+            logger.info(
+                "Reminder/follow-up detected for conversation %s; no task action taken",
+                metadata.conversation_id,
+            )
             return None
 
         seed_conversation_ids = list(thread_conversation_ids or [])
@@ -144,6 +148,10 @@ class TaskService:
 
         if analysis.action == ActionType.IGNORE:
             if existing_task is None:
+                logger.info(
+                    "FYI-only email for conversation %s has no existing task to update; skipping",
+                    metadata.conversation_id,
+                )
                 return None
             summary = None
             if isinstance(analysis.payload, SummaryUpdatePayload):
@@ -170,6 +178,11 @@ class TaskService:
 
         if analysis.action == ActionType.CREATE:
             if not isinstance(analysis.payload, TaskCreatePayload):
+                logger.warning(
+                    "CREATE action had unexpected payload type %s for conversation %s; skipping",
+                    type(analysis.payload).__name__,
+                    metadata.conversation_id,
+                )
                 return None
             payload_data = analysis.payload.model_dump(exclude={"assignees"})
             conversation_ids = self._merged_conversation_ids(
@@ -189,6 +202,11 @@ class TaskService:
 
         if analysis.action == ActionType.UPDATE:
             if not isinstance(analysis.payload, TaskUpdatePayload):
+                logger.warning(
+                    "UPDATE action had unexpected payload type %s for conversation %s; skipping",
+                    type(analysis.payload).__name__,
+                    metadata.conversation_id,
+                )
                 return None
             task = existing_task
             if task is None:
@@ -215,6 +233,11 @@ class TaskService:
                 source="email_analysis",
             )
 
+        logger.warning(
+            "Unhandled analysis action %s for conversation %s; no task action taken",
+            analysis.action.value,
+            metadata.conversation_id,
+        )
         return None
 
     def _resolve_assignee_ids(self, assignees: Optional[List[str]]) -> List[uuid.UUID]:
@@ -222,7 +245,10 @@ class TaskService:
         seen: set[uuid.UUID] = set()
         for value in assignees or []:
             user = self.user_repository.find_by_name_or_email(value)
-            if user is None or user.id in seen:
+            if user is None:
+                logger.warning("Could not resolve assignee '%s' to a known user; skipping", value)
+                continue
+            if user.id in seen:
                 continue
             seen.add(user.id)
             ids.append(user.id)
