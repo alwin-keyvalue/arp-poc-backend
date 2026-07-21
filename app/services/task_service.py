@@ -1,6 +1,7 @@
 import logging
 import uuid
-from typing import List, Optional, Sequence
+from datetime import date
+from typing import List, Optional, Sequence, Tuple
 
 from fastapi import HTTPException, status
 
@@ -71,8 +72,24 @@ class TaskService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
         return task
 
-    def get_tasks(self, skip: int = 0, limit: int = 100) -> List[Task]:
-        return self.repository.get_all(skip=skip, limit=limit)
+    def get_tasks(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        *,
+        search: Optional[str] = None,
+        assignee_id: Optional[uuid.UUID] = None,
+        priority: Optional[str] = None,
+        created_on: Optional[date] = None,
+    ) -> Tuple[List[Task], int]:
+        return self.repository.get_all(
+            skip=skip,
+            limit=limit,
+            search=search,
+            assignee_id=assignee_id,
+            priority=priority,
+            created_on=created_on,
+        )
 
     def get_task_history(self, task_id: uuid.UUID) -> List[TaskStatusHistory]:
         self.get_task(task_id)

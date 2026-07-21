@@ -1,8 +1,8 @@
 import uuid
 from datetime import date
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.task import Task
@@ -60,15 +60,45 @@ class TaskRepository:
             .first()
         )
 
-    def get_all(self, skip: int = 0, limit: int = 100) -> List[Task]:
-        return (
-            self.db.query(Task)
-            .options(selectinload(Task.assignees))
-            .filter(Task.is_deleted.is_(False))
+    def get_all(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        *,
+        search: Optional[str] = None,
+        assignee_id: Optional[uuid.UUID] = None,
+        priority: Optional[str] = None,
+        created_on: Optional[date] = None,
+    ) -> Tuple[List[Task], int]:
+        query = self.db.query(Task).filter(Task.is_deleted.is_(False))
+
+        if search and (term := search.strip()):
+            pattern = f"%{term}%"
+            query = query.filter(
+                or_(
+                    Task.title.ilike(pattern),
+                    Task.description.ilike(pattern),
+                )
+            )
+
+        if assignee_id is not None:
+            query = query.filter(Task.assignees.any(User.id == assignee_id))
+
+        if priority is not None:
+            query = query.filter(Task.priority == priority)
+
+        if created_on is not None:
+            query = query.filter(func.date(Task.created_at) == created_on)
+
+        total = query.count()
+        items = (
+            query.options(selectinload(Task.assignees))
+            .order_by(Task.created_at.desc())
             .offset(skip)
             .limit(limit)
             .all()
         )
+        return items, total
 
     def update(self, task: Task, task_data: TaskUpdate) -> Task:
         for field, value in task_data.model_dump(exclude_unset=True, exclude=_TASK_EXCLUDED_FIELDS).items():

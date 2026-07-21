@@ -54,6 +54,13 @@ class TaskResponse(TaskBase):
     last_update: datetime
 
 
+class TaskListResponse(BaseModel):
+    items: List[TaskResponse]
+    total: int
+    skip: int
+    limit: int
+
+
 class TaskStatusHistoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
