@@ -1,6 +1,7 @@
 import uuid
 from typing import List
 
+import httpx
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
@@ -9,15 +10,20 @@ from app.core.internal_auth import (
     verify_internal_auth_secret,
 )
 from app.database import get_db
+from app.dependencies import get_http_client
 from app.repositories.user_repository import UserRepository
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.services.subscription_service import build_subscription_service
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
-def get_user_service(db: Session = Depends(get_db)) -> UserService:
-    return UserService(UserRepository(db))
+def get_user_service(
+    db: Session = Depends(get_db),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
+) -> UserService:
+    return UserService(UserRepository(db), build_subscription_service(db, http_client))
 
 
 @router.post(
@@ -70,5 +76,5 @@ def update_user(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(verify_internal_auth_secret)],
 )
-def delete_user(user_id: uuid.UUID, service: UserService = Depends(get_user_service)):
-    service.delete_user(user_id)
+async def delete_user(user_id: uuid.UUID, service: UserService = Depends(get_user_service)):
+    await service.delete_user(user_id)

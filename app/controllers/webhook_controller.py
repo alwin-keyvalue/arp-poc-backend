@@ -1,4 +1,3 @@
-import json
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
@@ -50,7 +49,15 @@ async def validate_or_receive_webhook(
         logger.warning("Webhook request body was not a JSON object (got %s); treating as empty", type(body).__name__)
         body = {}
 
-    logger.info("Webhook payload: %s", json.dumps(body))
+    # The raw body includes clientState (a shared secret) and, for rich notifications, only
+    # encrypted content — but logging it wholesale is still an anti-pattern (it's whatever
+    # Microsoft sends, not schema-guaranteed). Log shape only: top-level keys and item count.
+    notification_items = body.get("value")
+    logger.info(
+        "Webhook payload received: keys=%s item_count=%s",
+        sorted(body.keys()),
+        len(notification_items) if isinstance(notification_items, list) else "n/a",
+    )
 
     validation_token = get_request_validation_token(request, body)
     if validation_token:
@@ -60,7 +67,7 @@ async def validate_or_receive_webhook(
     try:
         payload = WebhookNotificationPayload.model_validate(body)
     except Exception:
-        logger.exception("Failed to parse webhook notification payload: %s", body)
+        logger.exception("Failed to parse webhook notification payload (keys=%s)", sorted(body.keys()))
         raise
 
     if payload.value:

@@ -23,7 +23,7 @@ class TaskRepository:
     def _resolve_users(self, user_ids: Sequence[uuid.UUID]) -> List[User]:
         if not user_ids:
             return []
-        return self.db.query(User).filter(User.id.in_(user_ids)).all()
+        return self.db.query(User).filter(User.id.in_(user_ids), User.is_deleted.is_(False)).all()
 
     @staticmethod
     def _dedupe(values: Sequence[str]) -> List[str]:
