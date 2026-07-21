@@ -12,7 +12,7 @@ from app.models import (  # noqa: F401
     processed_email,
     task,
     task_assignee,
-    task_status_history,
+    task_change_history,
     user,
 )
 

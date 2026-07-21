@@ -41,6 +41,12 @@ class UserRepository:
             query = query.filter(User.is_deleted.is_(False))
         return query.first()
 
+    def get_by_aad_object_id(self, aad_object_id: str, *, include_deleted: bool = False) -> Optional[User]:
+        query = self.db.query(User).filter(User.aad_object_id == aad_object_id)
+        if not include_deleted:
+            query = query.filter(User.is_deleted.is_(False))
+        return query.first()
+
     def find_by_name_or_email(self, value: str, *, include_deleted: bool = False) -> Optional[User]:
         if not value or not value.strip():
             return None

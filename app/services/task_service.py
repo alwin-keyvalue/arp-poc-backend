@@ -1,13 +1,13 @@
 import logging
 import uuid
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from fastapi import HTTPException, status
 
 from app.models.task import Task
-from app.models.task_status_history import TaskStatusHistory
+from app.models.task_change_history import TaskChangeHistory
+from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.repositories.task_repository import TaskRepository
-from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import (
     ActionType,
@@ -17,10 +17,25 @@ from app.schemas.email_analysis import (
     TaskUpdatePayload,
 )
 from app.schemas.parsed_email import ParsedEmailInput
-from app.schemas.task import TaskCreate, TaskUpdate
+from app.schemas.task import TaskActivityPage, TaskCreate, TaskUpdate
 from app.services.bot_service import BotService
 
 logger = logging.getLogger(__name__)
+
+# Fields worth an audit-trail row when changed via update_task. Internal/bookkeeping fields
+# (conversation_ids, internet_message_ids, source_email_id, source_user, source_link) are
+# deliberately excluded — they're mutated automatically as a side effect of email threading
+# on nearly every apply_analysis call, which would drown real changes in noise.
+_TRACKED_FIELDS = {
+    "title",
+    "description",
+    "summary",
+    "status",
+    "priority",
+    "due_date",
+    "labels",
+    "assignee_ids",
+}
 
 
 class TaskService:
@@ -29,7 +44,7 @@ class TaskService:
         repository: TaskRepository,
         user_repository: UserRepository,
         bot_service: BotService,
-        history_repository: TaskStatusHistoryRepository,
+        history_repository: TaskChangeHistoryRepository,
     ):
         self.repository = repository
         self.user_repository = user_repository
@@ -55,8 +70,9 @@ class TaskService:
         task = self.repository.create(task_data)
         self.history_repository.record(
             task=task,
-            from_status=None,
-            to_status=task.status,
+            field_name="status",
+            old_value=None,
+            new_value=task.status,
             source=source,
             changed_by_oid=actor_oid,
             changed_by_name=actor_name,
@@ -74,9 +90,48 @@ class TaskService:
     def get_tasks(self, skip: int = 0, limit: int = 100) -> List[Task]:
         return self.repository.get_all(skip=skip, limit=limit)
 
-    def get_task_history(self, task_id: uuid.UUID) -> List[TaskStatusHistory]:
+    def get_task_history(self, task_id: uuid.UUID) -> List[TaskChangeHistory]:
         self.get_task(task_id)
         return self.history_repository.list_for_task(task_id)
+
+    def get_activity_for_user(
+        self,
+        *,
+        aad_object_id: Optional[str],
+        email: Optional[str],
+        page: int = 1,
+        page_size: int = 20,
+    ) -> TaskActivityPage:
+        """Cross-task activity feed: every change-history row for tasks the given identity is
+        assigned to, most recent first. aad_object_id is tried first (set once a user has
+        interacted with the Teams bot); email is the fallback for a user known only via SSO."""
+        user = None
+        if aad_object_id:
+            user = self.user_repository.get_by_aad_object_id(aad_object_id)
+        if user is None and email:
+            user = self.user_repository.get_by_email(email)
+
+        if user is None:
+            return TaskActivityPage(items=[], total=0, page=page, page_size=page_size)
+
+        skip = (page - 1) * page_size
+        items, total = self.history_repository.list_and_count_for_assignee(
+            user.id, skip=skip, limit=page_size
+        )
+        return TaskActivityPage(items=items, total=total, page=page, page_size=page_size)
+
+    @staticmethod
+    def _snapshot_field(task: Task, field: str) -> Any:
+        if field == "due_date":
+            return task.due_date.isoformat() if task.due_date else None
+        if field == "assignee_ids":
+            # Raw user ids, matching what this field actually is everywhere else in the
+            # schema (Task.assignee_ids) — not emails, to avoid duplicating PII into the
+            # audit table and to stay consistent if a user's email is later changed.
+            return sorted(str(user.id) for user in task.assignees)
+        if field == "labels":
+            return sorted(task.labels or [])
+        return getattr(task, field)
 
     def update_task(
         self,
@@ -89,18 +144,27 @@ class TaskService:
     ) -> Task:
         task = self.get_task(task_id)
         self._validate_assignees(task_data.assignee_ids)
-        previous_status = task.status
+
+        # Snapshot every tracked field the caller is actually touching BEFORE the repository
+        # mutates `task` in place (TaskRepository.update sets attributes on the same object
+        # it's given, so capturing "before" values has to happen first).
+        tracked_fields = task_data.model_fields_set & _TRACKED_FIELDS
+        before = {field: self._snapshot_field(task, field) for field in tracked_fields}
+
         updated = self.repository.update(task, task_data)
-        status_changed = "status" in task_data.model_fields_set and updated.status != previous_status
-        if status_changed:
-            self.history_repository.record(
-                task=updated,
-                from_status=previous_status,
-                to_status=updated.status,
-                source=source,
-                changed_by_oid=actor_oid,
-                changed_by_name=actor_name,
-            )
+
+        for field in tracked_fields:
+            after = self._snapshot_field(updated, field)
+            if after != before[field]:
+                self.history_repository.record(
+                    task=updated,
+                    field_name=field,
+                    old_value=before[field],
+                    new_value=after,
+                    source=source,
+                    changed_by_oid=actor_oid,
+                    changed_by_name=actor_name,
+                )
         return updated
 
     def delete_task(self, task_id: uuid.UUID) -> None:

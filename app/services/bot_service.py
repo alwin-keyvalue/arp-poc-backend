@@ -16,8 +16,8 @@ from app.config import settings
 from app.integrations.microsoft_graph.client import GraphClient
 from app.models.task import Task, TaskStatus
 from app.models.user import User
+from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.repositories.task_repository import TaskRepository
-from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.task import TaskUpdate
 from app.services.subscription_service import build_subscription_service
@@ -167,10 +167,11 @@ class BotService:
             return
 
         if task.status != previous_status:
-            TaskStatusHistoryRepository(db).record(
+            TaskChangeHistoryRepository(db).record(
                 task=task,
-                from_status=previous_status,
-                to_status=task.status,
+                field_name="status",
+                old_value=previous_status,
+                new_value=task.status,
                 source="teams_bot",
                 changed_by_oid=activity.from_property.aad_object_id if activity.from_property else None,
                 changed_by_name=activity.from_property.name if activity.from_property else None,

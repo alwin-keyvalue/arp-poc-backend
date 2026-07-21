@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -54,15 +54,23 @@ class TaskResponse(TaskBase):
     last_update: datetime
 
 
-class TaskStatusHistoryResponse(BaseModel):
+class TaskChangeHistoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     task_id: uuid.UUID
     task_title: str
-    from_status: Optional[str] = None
-    to_status: str
+    field_name: str
+    old_value: Optional[Any] = None
+    new_value: Optional[Any] = None
     source: str
     changed_by_oid: Optional[str] = None
     changed_by_name: Optional[str] = None
     changed_at: datetime
+
+
+class TaskActivityPage(BaseModel):
+    items: List[TaskChangeHistoryResponse]
+    total: int
+    page: int
+    page_size: int
