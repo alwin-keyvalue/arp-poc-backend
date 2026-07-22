@@ -14,8 +14,8 @@ from app.integrations.microsoft_graph.client import GraphClient
 from app.models.graph_subscription import GraphSubscriptionRecord
 from app.repositories.processed_email_repository import ProcessedEmailRepository
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.repositories.task_repository import TaskRepository
-from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import KnownUser
 from app.services.bot_service import get_bot_service
@@ -118,7 +118,7 @@ class MailboxSyncService:
                 TaskRepository(db),
                 UserRepository(db),
                 get_bot_service(),
-                TaskStatusHistoryRepository(db),
+                TaskChangeHistoryRepository(db),
             )
             outcome_counts: Counter = Counter()
             for message in messages:

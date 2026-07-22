@@ -22,8 +22,8 @@ from app.integrations.microsoft_graph.rich_notifications import (
 from app.models.task import Task
 from app.repositories.processed_email_repository import ProcessedEmailRepository
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.repositories.task_repository import TaskRepository
-from app.repositories.task_status_history_repository import TaskStatusHistoryRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import EmailInput, KnownUser
 from app.schemas.subscription import WebhookNotificationItem, WebhookNotificationPayload
@@ -84,7 +84,7 @@ class WebhookProcessorService:
                 task_repository,
                 user_repository,
                 get_bot_service(),
-                TaskStatusHistoryRepository(db),
+                TaskChangeHistoryRepository(db),
             )
             known_users = [
                 KnownUser(

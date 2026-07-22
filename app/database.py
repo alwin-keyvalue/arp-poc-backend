@@ -13,6 +13,7 @@ engine = create_engine(
     # proactively rotates connections before the server has a chance to kill them.
     pool_pre_ping=True,
     pool_recycle=300,
+    echo=settings.db_echo,
 )
 
 
