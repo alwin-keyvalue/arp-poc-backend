@@ -11,7 +11,7 @@ class TaskChangeHistory(Base):
     __tablename__ = "task_change_history"
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # Tasks are soft-deleted (see Task.is_deleted), never actually removed, so the row this
+    # Tasks are soft-deleted (see Task.deleted_at), never actually removed, so the row this
     # references always exists — safe to enforce as a real FK.
     task_id = Column(
         Uuid(as_uuid=True), ForeignKey("tasks.id", name="fk_task_change_history_task_id"), nullable=False, index=True

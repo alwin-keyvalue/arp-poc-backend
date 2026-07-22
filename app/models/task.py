@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Boolean, Column, Date, DateTime, JSON, String, Text, Uuid
+from sqlalchemy import Column, Date, DateTime, JSON, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -43,7 +43,9 @@ class Task(Base):
     status = Column(String(50), nullable=False, default=TaskStatus.TO_DO.value)
     priority = Column(String(50), nullable=False, default=TaskPriority.P2.value)
     due_date = Column(Date, nullable=True)
-    is_deleted = Column(Boolean, nullable=False, default=False, server_default="false")
+    # NULL = not deleted; a timestamp = soft-deleted at that time. Replaces the old plain
+    # is_deleted boolean so soft-deletes also record *when*, not just whether.
+    deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     last_update = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

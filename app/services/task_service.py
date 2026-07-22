@@ -97,6 +97,7 @@ class TaskService:
         assignee_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
         created_on: Optional[date] = None,
+        deleted_only: bool = False,
     ) -> Tuple[List[Task], int]:
         return self.repository.get_all(
             skip=skip,
@@ -105,6 +106,7 @@ class TaskService:
             assignee_id=assignee_id,
             priority=priority,
             created_on=created_on,
+            deleted_only=deleted_only,
         )
 
     def get_dashboard(self) -> TaskDashboardResponse:

@@ -48,7 +48,7 @@ class TaskRepository:
     def get_by_id(self, task_id: uuid.UUID, *, include_deleted: bool = False) -> Optional[Task]:
         query = self.db.query(Task).options(selectinload(Task.assignees)).filter(Task.id == task_id)
         if not include_deleted:
-            query = query.filter(Task.is_deleted.is_(False))
+            query = query.filter(Task.deleted_at.is_(None))
         return query.first()
 
     def get_by_conversation_id(self, conversation_id: str) -> Optional[Task]:
@@ -56,7 +56,7 @@ class TaskRepository:
             self.db.query(Task)
             .filter(
                 Task.metadata_.contains({"conversation_ids": [conversation_id]}),
-                Task.is_deleted.is_(False),
+                Task.deleted_at.is_(None),
             )
             .order_by(Task.last_update.desc())
             .first()
@@ -71,8 +71,10 @@ class TaskRepository:
         assignee_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
         created_on: Optional[date] = None,
+        deleted_only: bool = False,
     ) -> Tuple[List[Task], int]:
-        query = self.db.query(Task).filter(Task.is_deleted.is_(False))
+        deleted_filter = Task.deleted_at.isnot(None) if deleted_only else Task.deleted_at.is_(None)
+        query = self.db.query(Task).filter(deleted_filter)
 
         if search and (term := search.strip()):
             pattern = f"%{term}%"
@@ -122,7 +124,7 @@ class TaskRepository:
         return task
 
     def soft_delete(self, task: Task) -> None:
-        task.is_deleted = True
+        task.deleted_at = func.now()
         self.db.commit()
         self.db.refresh(task)
 
@@ -130,7 +132,7 @@ class TaskRepository:
         return (
             self.db.query(Task)
             .options(selectinload(Task.assignees))
-            .filter(Task.is_deleted.is_(False))
+            .filter(Task.deleted_at.is_(None))
             .filter(func.date(Task.created_at) >= from_date, func.date(Task.created_at) <= to_date)
             .order_by(Task.created_at.asc())
             .all()
@@ -180,7 +182,7 @@ class TaskRepository:
                     0,
                 ).label("done"),
             )
-            .filter(Task.is_deleted.is_(False))
+            .filter(Task.deleted_at.is_(None))
             .one()
         )
 

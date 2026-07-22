@@ -50,6 +50,7 @@ def list_tasks(
     assignee_id: Optional[uuid.UUID] = Query(None, description="Only tasks assigned to this user"),
     priority: Optional[TaskPriority] = Query(None, description="Filter by priority (P0, P1, P2)"),
     created_on: Optional[date] = Query(None, description="Only tasks created on this date (YYYY-MM-DD)"),
+    deleted_only: bool = Query(False, description="If true, return only soft-deleted tasks instead of active ones"),
     service: TaskService = Depends(get_task_service),
 ):
     items, total = service.get_tasks(
@@ -59,6 +60,7 @@ def list_tasks(
         assignee_id=assignee_id,
         priority=priority.value if priority is not None else None,
         created_on=created_on,
+        deleted_only=deleted_only,
     )
     return TaskListResponse(items=items, total=total, skip=skip, limit=limit)
 

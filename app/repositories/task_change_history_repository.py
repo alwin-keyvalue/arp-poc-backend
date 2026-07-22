@@ -52,7 +52,7 @@ class TaskChangeHistoryRepository:
             self.db.query(TaskChangeHistory)
             .join(Task, TaskChangeHistory.task_id == Task.id)
             .join(TaskAssignee, TaskAssignee.task_id == Task.id)
-            .filter(TaskAssignee.user_id == user_id, Task.is_deleted.is_(False))
+            .filter(TaskAssignee.user_id == user_id, Task.deleted_at.is_(None))
         )
 
     def list_and_count_for_assignee(
