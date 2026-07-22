@@ -1,13 +1,14 @@
 import enum
 import uuid
 
-from sqlalchemy import Column, Date, DateTime, JSON, String, Text, Uuid
+from sqlalchemy import Column, Date, DateTime, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.task_assignee import TaskAssignee
+from app.models.task_label import TaskLabel
 
 
 class TaskStatus(str, enum.Enum):
@@ -40,7 +41,6 @@ class Task(Base):
     # "metadata" is reserved on declarative models (Base.metadata), so the Python attribute
     # is named metadata_ while the actual DB column stays "metadata".
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict, server_default="{}")
-    labels = Column(JSON, nullable=False, default=list)
     status = Column(String(50), nullable=False, default=TaskStatus.TO_DO.value)
     priority = Column(String(50), nullable=False, default=TaskPriority.P2.value)
     due_date = Column(Date, nullable=True)
@@ -51,6 +51,7 @@ class Task(Base):
     last_update = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
     assignees = relationship("User", secondary=TaskAssignee.__table__, order_by="User.email")
+    labels = relationship("Label", secondary=TaskLabel.__table__, order_by="Label.name")
 
     @property
     def assignee_ids(self) -> list:

@@ -5,8 +5,10 @@ from typing import List, Optional, Sequence, Tuple, Any
 
 from fastapi import HTTPException, status
 
+from app.models.label import Label
 from app.models.task import Task
 from app.models.task_change_history import TaskChangeHistory
+from app.repositories.label_repository import LabelRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
@@ -35,7 +37,6 @@ _TRACKED_FIELDS = {
     "status",
     "priority",
     "due_date",
-    "labels",
     "assignee_ids",
 }
 
@@ -47,11 +48,13 @@ class TaskService:
         user_repository: UserRepository,
         bot_service: BotService,
         history_repository: TaskChangeHistoryRepository,
+        label_repository: LabelRepository,
     ):
         self.repository = repository
         self.user_repository = user_repository
         self.bot_service = bot_service
         self.history_repository = history_repository
+        self.label_repository = label_repository
 
     def _validate_assignees(self, assignee_ids: Optional[List[uuid.UUID]]) -> None:
         for assignee_id in assignee_ids or []:
@@ -119,6 +122,25 @@ class TaskService:
         self.get_task(task_id)
         return self.history_repository.list_for_task(task_id)
 
+    def get_task_labels(self, task_id: uuid.UUID) -> List[Label]:
+        task = self.get_task(task_id)
+        return task.labels
+
+    def attach_label(self, task_id: uuid.UUID, label_id: uuid.UUID) -> Label:
+        task = self.get_task(task_id)
+        label = self.label_repository.get_by_id(label_id)
+        if label is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Label not found")
+        self.repository.attach_label(task, label)
+        return label
+
+    def detach_label(self, task_id: uuid.UUID, label_id: uuid.UUID) -> None:
+        task = self.get_task(task_id)
+        label = self.label_repository.get_by_id(label_id)
+        if label is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Label not found")
+        self.repository.detach_label(task, label)
+
     def get_activity_for_user(
         self,
         *,
@@ -159,8 +181,6 @@ class TaskService:
             # schema (Task.assignee_ids) — not emails, to avoid duplicating PII into the
             # audit table and to stay consistent if a user's email is later changed.
             return sorted(str(user.id) for user in task.assignees)
-        if field == "labels":
-            return sorted(task.labels or [])
         return getattr(task, field)
 
     def update_task(

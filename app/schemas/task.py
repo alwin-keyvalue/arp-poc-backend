@@ -5,6 +5,7 @@ from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict
 
 from app.models.task import TaskPriority, TaskStatus
+from app.schemas.label import LabelResponse
 
 
 class TaskBase(BaseModel):
@@ -21,7 +22,6 @@ class TaskBase(BaseModel):
     source_user: Optional[str] = None
     source_link: Optional[str] = None
     assignee_ids: List[uuid.UUID] = []
-    labels: List[str] = []
     status: TaskStatus = TaskStatus.TO_DO
     priority: TaskPriority = TaskPriority.P2
     due_date: Optional[date] = None
@@ -42,7 +42,6 @@ class TaskUpdate(BaseModel):
     source_user: Optional[str] = None
     source_link: Optional[str] = None
     assignee_ids: Optional[List[uuid.UUID]] = None
-    labels: Optional[List[str]] = None
     status: Optional[TaskStatus] = None
     priority: Optional[TaskPriority] = None
     due_date: Optional[date] = None
@@ -52,6 +51,7 @@ class TaskResponse(TaskBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    labels: List[LabelResponse] = []
     created_at: datetime
     last_update: datetime
 

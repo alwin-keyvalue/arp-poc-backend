@@ -5,6 +5,7 @@ from typing import List, Optional, Sequence, Tuple
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.label import Label
 from app.models.task import Task, TaskStatus
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskDashboardResponse, TaskUpdate
@@ -46,10 +47,28 @@ class TaskRepository:
         return task
 
     def get_by_id(self, task_id: uuid.UUID, *, include_deleted: bool = False) -> Optional[Task]:
-        query = self.db.query(Task).options(selectinload(Task.assignees)).filter(Task.id == task_id)
+        query = (
+            self.db.query(Task)
+            .options(selectinload(Task.assignees), selectinload(Task.labels))
+            .filter(Task.id == task_id)
+        )
         if not include_deleted:
             query = query.filter(Task.deleted_at.is_(None))
         return query.first()
+
+    def attach_label(self, task: Task, label: Label) -> Task:
+        if label not in task.labels:
+            task.labels.append(label)
+            self.db.commit()
+            self.db.refresh(task)
+        return task
+
+    def detach_label(self, task: Task, label: Label) -> Task:
+        if label in task.labels:
+            task.labels.remove(label)
+            self.db.commit()
+            self.db.refresh(task)
+        return task
 
     def get_by_conversation_id(self, conversation_id: str) -> Optional[Task]:
         return (
@@ -100,7 +119,7 @@ class TaskRepository:
 
         total = query.count()
         items = (
-            query.options(selectinload(Task.assignees))
+            query.options(selectinload(Task.assignees), selectinload(Task.labels))
             .order_by(Task.created_at.desc())
             .offset(skip)
             .limit(limit)

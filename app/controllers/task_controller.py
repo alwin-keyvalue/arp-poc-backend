@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.core.teams_auth import TeamsUser, get_current_teams_user
 from app.database import get_db
+from app.repositories.label_repository import LabelRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.models.task import TaskPriority
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
+from app.schemas.label import LabelResponse
 from app.schemas.task import (
     TaskCreate,
     TaskDashboardResponse,
@@ -30,7 +32,9 @@ def get_task_service(
     db: Session = Depends(get_db),
     bot_service: BotService = Depends(get_bot_service),
 ) -> TaskService:
-    return TaskService(TaskRepository(db), UserRepository(db), bot_service, TaskChangeHistoryRepository(db))
+    return TaskService(
+        TaskRepository(db), UserRepository(db), bot_service, TaskChangeHistoryRepository(db), LabelRepository(db)
+    )
 
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
@@ -97,6 +101,21 @@ def get_task(task_id: uuid.UUID, service: TaskService = Depends(get_task_service
 @router.get("/{task_id}/history", response_model=List[TaskChangeHistoryResponse])
 def get_task_history(task_id: uuid.UUID, service: TaskService = Depends(get_task_service)):
     return service.get_task_history(task_id)
+
+
+@router.get("/{task_id}/labels", response_model=List[LabelResponse])
+def list_task_labels(task_id: uuid.UUID, service: TaskService = Depends(get_task_service)):
+    return service.get_task_labels(task_id)
+
+
+@router.post("/{task_id}/labels/{label_id}", response_model=LabelResponse, status_code=status.HTTP_201_CREATED)
+def attach_task_label(task_id: uuid.UUID, label_id: uuid.UUID, service: TaskService = Depends(get_task_service)):
+    return service.attach_label(task_id, label_id)
+
+
+@router.delete("/{task_id}/labels/{label_id}", status_code=status.HTTP_204_NO_CONTENT)
+def detach_task_label(task_id: uuid.UUID, label_id: uuid.UUID, service: TaskService = Depends(get_task_service)):
+    service.detach_label(task_id, label_id)
 
 
 @router.put("/{task_id}", response_model=TaskResponse)

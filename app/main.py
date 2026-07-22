@@ -10,6 +10,7 @@ from app.controllers.subscription_controller import router as subscription_route
 from app.controllers.bot_controller import router as bot_router
 from app.controllers.internal_controller import router as internal_router
 from app.controllers.report_controller import router as report_router
+from app.controllers.label_controller import router as label_router
 from app.controllers.task_controller import router as task_router
 from app.controllers.user_controller import router as user_router
 from app.controllers.webhook_controller import router as webhook_router
@@ -39,6 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(task_router)
+app.include_router(label_router)
 app.include_router(user_router)
 app.include_router(report_router)
 app.include_router(subscription_router)
