@@ -259,6 +259,13 @@ class WebhookProcessorService:
                     exc,
                 )
 
+        if existing_task is None and thread_conversation_ids:
+            for conversation_id in thread_conversation_ids:
+                existing_task = task_repository.get_by_conversation_id(conversation_id)
+                if existing_task is not None:
+                    task_summary = existing_task.summary
+                    break
+
         email_input = EmailInput.model_validate(parsed.model_dump())
         # Body/subject/addresses are PII/sensitive content — log shape only, never the content.
         logger.info(
@@ -276,8 +283,8 @@ class WebhookProcessorService:
             known_users=known_users,
             task_summary=task_summary,
             thread_context=thread_context,
-            refresh_summary_on_fyi=existing_task is not None,
-        )
+                has_existing_task=existing_task is not None,
+        )    
 
         # analysis.payload holds LLM-extracted title/description/assignees — sensitive content
         # derived from the email; log only the decision metadata, never the payload itself.

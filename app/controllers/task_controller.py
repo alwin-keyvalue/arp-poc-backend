@@ -54,6 +54,8 @@ def list_tasks(
     assignee_id: Optional[uuid.UUID] = Query(None, description="Only tasks assigned to this user"),
     priority: Optional[TaskPriority] = Query(None, description="Filter by priority (P0, P1, P2)"),
     created_on: Optional[date] = Query(None, description="Only tasks created on this date (YYYY-MM-DD)"),
+    due_on: Optional[date] = Query(None, description="Only tasks due on this date (YYYY-MM-DD)"),
+    label: Optional[str] = Query(None, description="Only tasks that include this label"),
     scope: Optional[str] = Query(
         None,
         description="Dashboard bucket filter: open | overdue | due_this_week | completed",
@@ -69,6 +71,8 @@ def list_tasks(
         assignee_id=assignee_id,
         priority=priority.value if priority is not None else None,
         created_on=created_on,
+        due_on=due_on,
+        label=label,
         scope=scope,
         deleted_only=deleted_only,
     )

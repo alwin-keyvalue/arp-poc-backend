@@ -2,7 +2,7 @@ import uuid
 from datetime import date, timedelta
 from typing import List, Optional, Sequence, Tuple
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import String, and_, case, cast, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.label import Label
@@ -90,6 +90,8 @@ class TaskRepository:
         assignee_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
         created_on: Optional[date] = None,
+        due_on: Optional[date] = None,
+        label: Optional[str] = None,
         scope: Optional[str] = None,
         deleted_only: bool = False,
     ) -> Tuple[List[Task], int]:
@@ -113,6 +115,13 @@ class TaskRepository:
 
         if created_on is not None:
             query = query.filter(func.date(Task.created_at) == created_on)
+
+        if due_on is not None:
+            query = query.filter(Task.due_date == due_on)
+
+        if label and (tag := label.strip()):
+            # labels is a JSON array of strings — match a quoted element in the serialized value.
+            query = query.filter(cast(Task.labels, String).like(f'%"{tag}"%'))
 
         if scope is not None:
             query = self._apply_scope_filter(query, scope)

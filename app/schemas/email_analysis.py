@@ -141,6 +141,18 @@ class SummaryUpdatePayload(BaseModel):
     )
 
 
+class CreateOrSkipPayload(BaseModel):
+    should_create: bool
+    confidence: float = Field(ge=0.0, le=1.0, default=1.0)
+    title: Optional[str] = None
+    description: Optional[str] = None
+    summary: Optional[str] = None
+    assignees: List[str] = Field(default_factory=list)
+    status: TaskStatus = TaskStatus.TO_DO
+    priority: TaskPriority = TaskPriority.P2
+    due_date: Optional[date] = None
+
+
 # --- Output ---
 
 
