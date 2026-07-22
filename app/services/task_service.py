@@ -112,6 +112,11 @@ class TaskService:
             user = self.user_repository.get_by_email(email)
 
         if user is None:
+            logger.warning(
+                "No user found for activity feed: aad_object_id=%s email=%s",
+                aad_object_id,
+                email
+            )
             return TaskActivityPage(items=[], total=0, page=page, page_size=page_size)
 
         skip = (page - 1) * page_size

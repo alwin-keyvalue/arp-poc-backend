@@ -16,6 +16,9 @@ class Settings:
         self.db_password = os.getenv("DB_PASSWORD")
         self.db_sslmode = os.getenv("DB_SSLMODE", "require")
         self.db_schema = os.getenv("DB_SCHEMA")
+        # Logs every SQL statement + params via the "sqlalchemy.engine" logger. Off by
+        # default — noisy and can leak query parameter values into logs.
+        self.db_echo = os.getenv("DB_ECHO", "false").strip().lower() == "true"
 
         if self.db_host:
             self.database_url = URL.create(

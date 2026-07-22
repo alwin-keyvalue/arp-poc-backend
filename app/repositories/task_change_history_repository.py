@@ -59,11 +59,22 @@ class TaskChangeHistoryRepository:
         self, user_id: uuid.UUID, *, skip: int = 0, limit: int = 20
     ) -> Tuple[List[TaskChangeHistory], int]:
         base_query = self._for_assignee_query(user_id)
-        total = base_query.with_entities(func.count(func.distinct(TaskChangeHistory.id))).scalar() or 0
-        items = (
-            base_query.order_by(TaskChangeHistory.changed_at.desc())
+
+        # Single round trip: fold the total into the same result set via a window function
+        # instead of a separate COUNT(*) query. Only falls back to a real COUNT query for the
+        # edge case of an empty page (skip past the end) — a window function has no row to
+        # carry the total on when the page itself comes back empty.
+        rows = (
+            base_query.with_entities(TaskChangeHistory, func.count().over().label("total_count"))
+            .order_by(TaskChangeHistory.changed_at.desc())
             .offset(skip)
             .limit(limit)
             .all()
         )
-        return items, total
+        if rows:
+            items = [row[0] for row in rows]
+            total = rows[0][1]
+            return items, total
+
+        total = base_query.with_entities(func.count(func.distinct(TaskChangeHistory.id))).scalar() or 0
+        return [], total
