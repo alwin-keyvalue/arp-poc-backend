@@ -9,6 +9,7 @@ from app.models.label import Label
 from app.models.task import Task
 from app.models.task_change_history import TaskChangeHistory
 from app.repositories.label_repository import LabelRepository
+from app.repositories.note_repository import NoteRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
@@ -18,8 +19,9 @@ from app.schemas.email_analysis import (
     TaskCreatePayload,
     TaskUpdatePayload,
 )
+from app.schemas.note import NoteResponse
 from app.schemas.parsed_email import ParsedEmailInput
-from app.schemas.task import TaskCreate, TaskDashboardResponse, TaskUpdate, TaskActivityPage
+from app.schemas.task import TaskCreate, TaskDashboardResponse, TaskDetailResponse, TaskResponse, TaskUpdate, TaskActivityPage
 from app.services.bot_service import BotService
 
 logger = logging.getLogger(__name__)
@@ -48,12 +50,14 @@ class TaskService:
         bot_service: BotService,
         history_repository: TaskChangeHistoryRepository,
         label_repository: LabelRepository,
+        note_repository: NoteRepository,
     ):
         self.repository = repository
         self.user_repository = user_repository
         self.bot_service = bot_service
         self.history_repository = history_repository
         self.label_repository = label_repository
+        self.note_repository = note_repository
 
     def _validate_assignees(self, assignee_ids: Optional[List[uuid.UUID]]) -> None:
         for assignee_id in assignee_ids or []:
@@ -90,6 +94,14 @@ class TaskService:
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
         return task
+
+    def get_task_with_notes(self, task_id: uuid.UUID) -> TaskDetailResponse:
+        task = self.get_task(task_id)
+        notes = self.note_repository.list_for_task(task_id)
+        return TaskDetailResponse(
+            **TaskResponse.model_validate(task).model_dump(),
+            notes=[NoteResponse.model_validate(note) for note in notes],
+        )
 
     def get_tasks(
         self,

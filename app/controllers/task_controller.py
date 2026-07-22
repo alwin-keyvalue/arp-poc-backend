@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.teams_auth import TeamsUser, get_current_teams_user
 from app.database import get_db
 from app.repositories.label_repository import LabelRepository
+from app.repositories.note_repository import NoteRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.models.task import TaskPriority
 from app.repositories.task_repository import TaskRepository
@@ -16,6 +17,7 @@ from app.schemas.label import LabelResponse
 from app.schemas.task import (
     TaskCreate,
     TaskDashboardResponse,
+    TaskDetailResponse,
     TaskListResponse,
     TaskResponse,
     TaskUpdate,
@@ -33,7 +35,12 @@ def get_task_service(
     bot_service: BotService = Depends(get_bot_service),
 ) -> TaskService:
     return TaskService(
-        TaskRepository(db), UserRepository(db), bot_service, TaskChangeHistoryRepository(db), LabelRepository(db)
+        TaskRepository(db),
+        UserRepository(db),
+        bot_service,
+        TaskChangeHistoryRepository(db),
+        LabelRepository(db),
+        NoteRepository(db),
     )
 
 
@@ -97,9 +104,9 @@ def get_my_activity(
     )
 
 
-@router.get("/{task_id}", response_model=TaskResponse)
+@router.get("/{task_id}", response_model=TaskDetailResponse)
 def get_task(task_id: uuid.UUID, service: TaskService = Depends(get_task_service)):
-    return service.get_task(task_id)
+    return service.get_task_with_notes(task_id)
 
 
 @router.get("/{task_id}/history", response_model=List[TaskChangeHistoryResponse])

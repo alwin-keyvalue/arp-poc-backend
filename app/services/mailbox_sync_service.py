@@ -15,6 +15,7 @@ from app.models.graph_subscription import GraphSubscriptionRecord
 from app.repositories.processed_email_repository import ProcessedEmailRepository
 from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.label_repository import LabelRepository
+from app.repositories.note_repository import NoteRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
@@ -121,6 +122,7 @@ class MailboxSyncService:
                 get_bot_service(),
                 TaskChangeHistoryRepository(db),
                 LabelRepository(db),
+                NoteRepository(db),
             )
             outcome_counts: Counter = Counter()
             for message in messages:

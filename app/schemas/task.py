@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.models.task import TaskPriority, TaskStatus
 from app.schemas.label import LabelResponse
+from app.schemas.note import NoteResponse
 
 
 class TaskBase(BaseModel):
@@ -54,6 +55,10 @@ class TaskResponse(TaskBase):
     labels: List[LabelResponse] = []
     created_at: datetime
     last_update: datetime
+
+
+class TaskDetailResponse(TaskResponse):
+    notes: List[NoteResponse] = []
 
 
 class TaskListResponse(BaseModel):
