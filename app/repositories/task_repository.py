@@ -1,13 +1,15 @@
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from typing import List, Optional, Sequence, Tuple
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.task import Task
+from app.models.task import Task, TaskStatus
 from app.models.user import User
-from app.schemas.task import TaskCreate, TaskUpdate
+from app.schemas.task import TaskCreate, TaskDashboardResponse, TaskUpdate
+
+_CLOSED_STATUSES = (TaskStatus.DONE.value, TaskStatus.DROPPED.value)
 
 _TASK_METADATA_FIELDS = {"conversation_ids", "internet_message_ids"}
 # created_via lives in metadata_ too, but unlike the fields above it's create-only (not on
@@ -132,4 +134,63 @@ class TaskRepository:
             .filter(func.date(Task.created_at) >= from_date, func.date(Task.created_at) <= to_date)
             .order_by(Task.created_at.asc())
             .all()
+        )
+
+    def get_dashboard_stats(self, *, today: Optional[date] = None) -> TaskDashboardResponse:
+        today = today or date.today()
+        week_end = today + timedelta(days=7)
+        is_open = Task.status.notin_(_CLOSED_STATUSES)
+
+        row = (
+            self.db.query(
+                func.count(Task.id).label("total"),
+                func.coalesce(func.sum(case((is_open, 1), else_=0)), 0).label("open_tasks"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(is_open, Task.due_date.isnot(None), Task.due_date < today), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("overdue"),
+                func.coalesce(
+                    func.sum(case((and_(is_open, Task.due_date == today), 1), else_=0)),
+                    0,
+                ).label("due_today"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    is_open,
+                                    Task.due_date.isnot(None),
+                                    Task.due_date >= today,
+                                    Task.due_date <= week_end,
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("due_this_week"),
+                func.coalesce(
+                    func.sum(case((Task.status == TaskStatus.DONE.value, 1), else_=0)),
+                    0,
+                ).label("done"),
+            )
+            .filter(Task.is_deleted.is_(False))
+            .one()
+        )
+
+        total = int(row.total or 0)
+        done = int(row.done or 0)
+        return TaskDashboardResponse(
+            open_tasks=int(row.open_tasks or 0),
+            total=total,
+            overdue=int(row.overdue or 0),
+            due_today=int(row.due_today or 0),
+            due_this_week=int(row.due_this_week or 0),
+            completed_pct=round((done / total) * 100) if total else 0,
         )

@@ -18,7 +18,7 @@ from app.schemas.email_analysis import (
     TaskUpdatePayload,
 )
 from app.schemas.parsed_email import ParsedEmailInput
-from app.schemas.task import TaskCreate, TaskUpdate
+from app.schemas.task import TaskCreate, TaskDashboardResponse, TaskUpdate
 from app.services.bot_service import BotService
 
 logger = logging.getLogger(__name__)
@@ -90,6 +90,9 @@ class TaskService:
             priority=priority,
             created_on=created_on,
         )
+
+    def get_dashboard(self) -> TaskDashboardResponse:
+        return self.repository.get_dashboard_stats()
 
     def get_task_history(self, task_id: uuid.UUID) -> List[TaskStatusHistory]:
         self.get_task(task_id)

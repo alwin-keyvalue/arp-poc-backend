@@ -61,6 +61,15 @@ class TaskListResponse(BaseModel):
     limit: int
 
 
+class TaskDashboardResponse(BaseModel):
+    open_tasks: int
+    total: int
+    overdue: int
+    due_today: int
+    due_this_week: int
+    completed_pct: int
+
+
 class TaskStatusHistoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

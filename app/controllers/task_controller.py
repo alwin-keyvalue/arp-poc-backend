@@ -13,6 +13,7 @@ from app.repositories.task_status_history_repository import TaskStatusHistoryRep
 from app.repositories.user_repository import UserRepository
 from app.schemas.task import (
     TaskCreate,
+    TaskDashboardResponse,
     TaskListResponse,
     TaskResponse,
     TaskStatusHistoryResponse,
@@ -59,6 +60,11 @@ def list_tasks(
         created_on=created_on,
     )
     return TaskListResponse(items=items, total=total, skip=skip, limit=limit)
+
+
+@router.get("/dashboard", response_model=TaskDashboardResponse)
+def get_dashboard(service: TaskService = Depends(get_task_service)):
+    return service.get_dashboard()
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
