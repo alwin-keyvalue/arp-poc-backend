@@ -17,8 +17,8 @@ from app.schemas.task import (
     TaskListResponse,
     TaskResponse,
     TaskUpdate,
-    TaskActivityPage, 
-    TaskChangeHistoryResponse, 
+    TaskActivityPage,
+    TaskChangeHistoryResponse,
 )
 from app.services.bot_service import BotService, get_bot_service
 from app.services.task_service import TaskService
@@ -50,6 +50,11 @@ def list_tasks(
     assignee_id: Optional[uuid.UUID] = Query(None, description="Only tasks assigned to this user"),
     priority: Optional[TaskPriority] = Query(None, description="Filter by priority (P0, P1, P2)"),
     created_on: Optional[date] = Query(None, description="Only tasks created on this date (YYYY-MM-DD)"),
+    scope: Optional[str] = Query(
+        None,
+        description="Dashboard bucket filter: open | overdue | due_this_week | completed",
+        pattern="^(open|overdue|due_this_week|completed)$",
+    ),
     deleted_only: bool = Query(False, description="If true, return only soft-deleted tasks instead of active ones"),
     service: TaskService = Depends(get_task_service),
 ):
@@ -60,6 +65,7 @@ def list_tasks(
         assignee_id=assignee_id,
         priority=priority.value if priority is not None else None,
         created_on=created_on,
+        scope=scope,
         deleted_only=deleted_only,
     )
     return TaskListResponse(items=items, total=total, skip=skip, limit=limit)

@@ -71,6 +71,7 @@ class TaskRepository:
         assignee_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
         created_on: Optional[date] = None,
+        scope: Optional[str] = None,
         deleted_only: bool = False,
     ) -> Tuple[List[Task], int]:
         deleted_filter = Task.deleted_at.isnot(None) if deleted_only else Task.deleted_at.is_(None)
@@ -94,6 +95,9 @@ class TaskRepository:
         if created_on is not None:
             query = query.filter(func.date(Task.created_at) == created_on)
 
+        if scope is not None:
+            query = self._apply_scope_filter(query, scope)
+
         total = query.count()
         items = (
             query.options(selectinload(Task.assignees))
@@ -103,6 +107,28 @@ class TaskRepository:
             .all()
         )
         return items, total
+
+    @staticmethod
+    def _apply_scope_filter(query, scope: str, *, today: Optional[date] = None):
+        """Align list filtering with get_dashboard_stats buckets."""
+        today = today or date.today()
+        week_end = today + timedelta(days=7)
+        is_open = Task.status.notin_(_CLOSED_STATUSES)
+
+        if scope == "open":
+            return query.filter(is_open)
+        if scope == "overdue":
+            return query.filter(is_open, Task.due_date.isnot(None), Task.due_date < today)
+        if scope == "due_this_week":
+            return query.filter(
+                is_open,
+                Task.due_date.isnot(None),
+                Task.due_date >= today,
+                Task.due_date <= week_end,
+            )
+        if scope == "completed":
+            return query.filter(Task.status == TaskStatus.DONE.value)
+        return query
 
     def update(self, task: Task, task_data: TaskUpdate) -> Task:
         for field, value in task_data.model_dump(exclude_unset=True, exclude=_TASK_EXCLUDED_FIELDS).items():
