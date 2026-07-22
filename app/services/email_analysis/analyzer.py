@@ -1,17 +1,13 @@
-from typing import List, Type
-
-from pydantic import BaseModel
+from typing import List
 
 from app.config import Settings, settings
 from app.schemas.email_analysis import (
     ActionType,
     AnalyzeResponse,
+    CreateOrSkipPayload,
     EmailInput,
-    IntentResponse,
     IntentType,
     KnownUser,
-    ReminderPayload,
-    SummaryUpdatePayload,
     TaskCreatePayload,
     TaskUpdatePayload,
     to_llm_context,
@@ -19,23 +15,9 @@ from app.schemas.email_analysis import (
 from app.services.email_analysis.llm.factory import create_llm_client
 from app.services.email_analysis.llm_service import LLMService
 from app.services.email_analysis.prompt_builder import (
-    extraction_prompt,
-    intent_prompt,
-    summary_update_prompt,
+    create_or_skip_prompt,
+    update_existing_task_prompt,
 )
-
-_INTENT_TO_ACTION = {
-    IntentType.NEW_TASK: ActionType.CREATE,
-    IntentType.FYI_ONLY: ActionType.IGNORE,
-    IntentType.TASK_UPDATE: ActionType.UPDATE,
-    IntentType.REMINDER_FOLLOW_UP: ActionType.REMINDER,
-}
-
-_INTENT_TO_PAYLOAD_MODEL: dict[IntentType, Type[BaseModel]] = {
-    IntentType.NEW_TASK: TaskCreatePayload,
-    IntentType.TASK_UPDATE: TaskUpdatePayload,
-    IntentType.REMINDER_FOLLOW_UP: ReminderPayload,
-}
 
 
 def _match_known_user_email(value: str, known_users: List[KnownUser]) -> str | None:
@@ -120,7 +102,7 @@ class Analyzer:
         known_users: List[KnownUser] | None = None,
         task_summary: str | None = None,
         thread_context: str | None = None,
-        refresh_summary_on_fyi: bool = False,
+        has_existing_task: bool = False,
     ) -> AnalyzeResponse:
         llm_ctx = to_llm_context(
             email,
@@ -129,33 +111,46 @@ class Analyzer:
             thread_context=thread_context,
         )
 
-        system, user = intent_prompt(llm_ctx)
-        intent_result = await self._llm.generate(system, user, IntentResponse)
-
-        if intent_result.intent == IntentType.FYI_ONLY:
-            payload = None
-            if refresh_summary_on_fyi:
-                system, user = summary_update_prompt(llm_ctx)
-                payload = await self._llm.generate(system, user, SummaryUpdatePayload)
+        if has_existing_task:
+            system, user = update_existing_task_prompt(llm_ctx)
+            payload = await self._llm.generate(system, user, TaskUpdatePayload)
+            if payload.assignees is not None:
+                payload.assignees = _filter_assignees_to_known_users(payload.assignees, known_users)
+                if not payload.assignees:
+                    payload.assignees = None
             return AnalyzeResponse(
-                intent=intent_result.intent,
-                confidence=intent_result.confidence,
-                action=ActionType.IGNORE,
+                intent=IntentType.TASK_UPDATE,
+                confidence=1.0,
+                action=ActionType.UPDATE,
                 payload=payload,
             )
 
-        payload_model = _INTENT_TO_PAYLOAD_MODEL[intent_result.intent]
-        system, user = extraction_prompt(intent_result.intent, llm_ctx)
-        payload = await self._llm.generate(system, user, payload_model)
+        system, user = create_or_skip_prompt(llm_ctx)
+        result = await self._llm.generate(system, user, CreateOrSkipPayload)
 
-        if isinstance(payload, (TaskCreatePayload, TaskUpdatePayload)) and payload.assignees is not None:
-            payload.assignees = _finalize_assignees(payload.assignees, email, known_users)
+        if not result.should_create:
+            return AnalyzeResponse(
+                intent=IntentType.FYI_ONLY,
+                confidence=result.confidence,
+                action=ActionType.IGNORE,
+                payload=None,
+            )
 
+        create_payload = TaskCreatePayload(
+            title=result.title or "",
+            description=result.description,
+            summary=result.summary or "",
+            assignees=result.assignees,
+            status=result.status,
+            priority=result.priority,
+            due_date=result.due_date,
+        )
+        create_payload.assignees = _finalize_assignees(create_payload.assignees, email, known_users)
         return AnalyzeResponse(
-            intent=intent_result.intent,
-            confidence=intent_result.confidence,
-            action=_INTENT_TO_ACTION[intent_result.intent],
-            payload=payload,
+            intent=IntentType.NEW_TASK,
+            confidence=result.confidence,
+            action=ActionType.CREATE,
+            payload=create_payload,
         )
 
 

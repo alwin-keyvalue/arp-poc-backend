@@ -13,7 +13,6 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import (
     ActionType,
     AnalyzeResponse,
-    SummaryUpdatePayload,
     TaskCreatePayload,
     TaskUpdatePayload,
 )
@@ -233,46 +232,12 @@ class TaskService:
         existing_task: Optional[Task] = None,
         thread_conversation_ids: Optional[List[str]] = None,
     ) -> Optional[Task]:
-        if analysis.action == ActionType.REMINDER:
-            logger.info(
-                "Reminder/follow-up detected for conversation %s; no task action taken",
-                metadata.conversation_id,
-            )
-            return None
-
         seed_conversation_ids = list(thread_conversation_ids or [])
         if metadata.conversation_id:
             seed_conversation_ids.append(metadata.conversation_id)
 
         if analysis.action == ActionType.IGNORE:
-            if existing_task is None:
-                logger.info(
-                    "FYI-only email for conversation %s has no existing task to update; skipping",
-                    metadata.conversation_id,
-                )
-                return None
-            summary = None
-            if isinstance(analysis.payload, SummaryUpdatePayload):
-                summary = analysis.payload.summary
-            if not summary:
-                logger.warning(
-                    "FYI with existing task %s but no summary; merging ids only",
-                    existing_task.id,
-                )
-            conversation_ids = self._merged_conversation_ids(
-                existing_task,
-                conversation_ids=seed_conversation_ids,
-            )
-            update_kwargs: dict = {
-                "conversation_ids": conversation_ids,
-            }
-            if summary:
-                update_kwargs["summary"] = summary
-            return self.update_task(
-                existing_task.id,
-                TaskUpdate(**update_kwargs),
-                source="email_analysis",
-            )
+            return None
 
         if analysis.action == ActionType.CREATE:
             if not isinstance(analysis.payload, TaskCreatePayload):
@@ -320,7 +285,9 @@ class TaskService:
                 return None
             update_data = analysis.payload.model_dump(exclude_none=True, exclude={"assignees"})
             if analysis.payload.assignees is not None:
-                update_data["assignee_ids"] = self._resolve_assignee_ids(analysis.payload.assignees)
+                assignee_ids = self._resolve_assignee_ids(analysis.payload.assignees)
+                if assignee_ids:
+                    update_data["assignee_ids"] = assignee_ids
             update_data["conversation_ids"] = self._merged_conversation_ids(
                 task,
                 conversation_ids=seed_conversation_ids,
