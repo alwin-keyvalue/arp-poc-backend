@@ -1,4 +1,8 @@
-from app.schemas.email_analysis import LLMEmailContext, IntentType, KnownUser
+from app.schemas.email_analysis import LLMEmailContext, KnownUser
+
+
+def _section(title: str, body: str) -> str:
+    return f"## {title}\n{body.strip()}"
 
 
 def _format_email_context(llm_ctx: LLMEmailContext) -> str:
@@ -23,130 +27,115 @@ def _format_email_context(llm_ctx: LLMEmailContext) -> str:
         parts.append(f"Known users: {known}")
     parts.append(f"Kind: {llm_ctx.kind}")
     if llm_ctx.task_summary:
-        parts.append(f"Task history summary (context only):\n{llm_ctx.task_summary}")
+        parts.append(f"Task history summary:\n{llm_ctx.task_summary}")
     if llm_ctx.thread_context:
-        parts.append(f"Thread history (context only):\n{llm_ctx.thread_context}")
+        parts.append(f"Thread history:\n{llm_ctx.thread_context}")
     parts.append(f"Current message:\n{llm_ctx.body_text}")
-    return "\n\n".join(parts)
+    return _section("Email context", "\n\n".join(parts))
 
 
-_INTENT_RULES = """## Intents
-- "New task": recipient must act — review, respond, submit, decide, or complete work.
-- "FYI only": informational; no action required from recipient.
-- "Task update": changes an existing task — status, deadline, or assignee.
-- "Reminder/follow-up": nudge about pending work.
+_FIELD_RULES = """Do not guess or fabricate. Use null (optional fields) or [] (assignees) when unknown.
+Ignore email signatures.
+priority: P0 = urgent/ASAP/critical; P1 = important/soon/today/tomorrow; P2 = default or deadlines further out. Keep priority aligned with due_date and urgency wording.
+due_date: ISO 8601 date when clearly stated; resolve relative dates from Email date (morning 09:00, afternoon 14:00, evening 18:00, EOD 17:00); null otherwise. Never put deadlines in title/description.
+title/description: describe the work only (no assignee, no timing).
+summary: short chronological narrative (who→whom, assignees, asks, status/deadline/priority changes). Extend prior Task history summary if present. Not a duplicate of description."""
 
-## Decision tree (use Kind from the email context)
-- Kind original → "New task" when @mentioned with a request or recipient is asked to act; "FYI only" when nothing is requested.
-- Kind reply → prefer "Task update" for deadline changes ("by EOD"), @mention reassignments ("@bob please check this"), or status updates ("Done"). Use "New task" only for a clearly separate new request. Use Task history summary / Thread history when present.
-- Kind forwarded → scan the full Current message (including nested quotes/forwards) for actionable @mentions or requests/questions:
-  - "New task" only if that ask still looks unresolved (no clear answer, acknowledgment, or close in later nested messages).
-  - "FYI only" if there is no ask, or the ask was answered/agreed/closed, or the outer forward is a pure share with nothing open.
+_SANITIZATION_RULES = """Apply to title, description, and summary before returning:
+- Redact PII: phone numbers, physical addresses, account numbers, personal IDs, passwords.
+- Redact confidential business content: deal terms, pricing, unreleased financials.
+- Preserve the task intent and actionable meaning; do not remove the work request."""
 
-Examples:
-- "@bob please review" (original) → New task
-- "Submit by today EOD" (reply) → Task update
-- "Sharing Q3 results" → FYI only
-- Forward with "@nasser When do we buy?" then later buy guidance + "Agree" → FYI only
-- Forward with "@bob please review the deck" and no later response → New task"""
+_INPUT_DESCRIPTION = """The user message contains Email context: metadata, Known users, Kind, optional Task history summary, optional Thread history, and Current message (the message to process)."""
 
-_FIELD_RULES = """## Rules
-- Do not guess or fabricate. If a field cannot be inferred from the provided information, use null (optional fields) or [] (assignees). Title/description must be grounded only in the email content.
-- Ignore email signatures. Never use assignees from signature.
-- priority (default P2): P0 = urgent/ASAP/immediately/critical; P1 = important/soon/today; P2 = no urgency stated.
-- due_date: ISO 8601 date only when clearly stated; resolve relative dates from Email date (morning 09:00, afternoon 14:00, evening 18:00, EOD 17:00); null if none stated in current message. Never put deadlines in title/description.
-- title/description: describe the work only (no assignee, no timing).
-- summary: one narrative history tree of the thread/task so far for future updates. Write as a short chronological story (not a duplicate of description). Include who asked whom (sender → recipients), assignees, asks/status/deadline/priority changes, and topic. Start from prior Task history summary if present, then fold in the Current message. Do not invent events. Do NOT store PII or confidential data (no phone numbers, addresses, account numbers, personal IDs, passwords, or confidential deal/pricing details). Distinct from description (work to do)."""
+_CREATE_DECISION_RULES = """Set should_create=false for pure FYI/ack with no ask.
+Set should_create=true when the recipient must read, review, respond, submit, decide, or complete work.
 
-_EXTRACTION_RULES: dict[IntentType, str] = {
-    IntentType.NEW_TASK: """## Extract
-- title: short, action-oriented
-- description: work description (imperative), max 2 sentences
-- summary: single narrative history tree (prior Task history summary if any + this message; who→whom, assignees, ask/status; no PII/confidential data)
-- status: to_do unless clearly otherwise
-- assignees: follow Assignee rules below (union mentions + known recipients + coverage)
-- Apply rules above.""",
+Kind original — create when the recipient is asked to act; skip otherwise.
+Kind reply — Current message decides; Thread history is context only (links, subject, prior FYI):
+  create on directives ("Read this", "Please review", "Take a look") even after FYI-only thread;
+  skip acks/commentary alone ("Thanks", "Noted", "Worth a good read").
+Kind forwarded — create if an unresolved ask remains in nested content; skip if answered/closed or no ask."""
 
-    IntentType.TASK_UPDATE: """## Extract changed fields only (null for unchanged)
-- due_date, assignees, status, title, description, priority — only when explicitly changed in the current message.
-- summary: always return the updated narrative history tree (prior Task history summary + this message; who→whom, assignees, ask/status; no PII/confidential data).
-- When assignees change, apply Assignee rules below.
-- Apply all field rules above.""",
+_CREATE_OUTPUT_RULES = """Return should_create, confidence (0.0–1.0), and task fields when creating.
+If should_create=false: null title/summary, [] assignees.
+If should_create=true: title (short, action-oriented), description (imperative, max 2 sentences), summary, status (to_do unless clearly otherwise), priority, due_date, assignees."""
 
-    IntentType.REMINDER_FOLLOW_UP: """## Extract
-- reminder_note: summarize the nudge; include any dates as plain text (do not resolve them).""",
-}
+_UPDATE_OUTPUT_RULES = """Always return summary.
+Return due_date, assignees, status, title, description, priority only when explicitly changed for the main task work (from Task history summary).
+Do not change due_date or priority for sub-tasks, reminders, scheduling side-steps, or nudges about separate steps — record those in summary only; leave due_date and priority null.
+When the main task due_date changes, also return priority aligned to it. When main-task urgency wording changes, update priority even if due_date is unchanged.
+FYI/reminder with no other main-task changes: summary only; other fields null.
+status=done only when Current message clearly completes the original work — not for reminder acks or nudges or sub-task completion. If explicitly stated "done" or "completed" without mentioning any specific steps or sub-tasks, update status to done."""
 
-_SANITIZATION_RULES = """## Sanitize title/description for confidential/PII content; preserve status, priority, dates."""
+_ASSIGNEE_RULES_UPDATE = """Return assignees null (not []) unless Current message explicitly reassigns (@mention handoff, assign/reassign, @team).
+Do not infer assignees from To/Cc/Bcc, coverage, or reply participants.
+When reassigning, return the full new assignee list as Known user emails only."""
 
 
-def _coverage_map_from_known_users(known_users: list[KnownUser]) -> str:
-    lines = ["## Coverage map (topic/region → people)"]
+def _coverage_map(known_users: list[KnownUser]) -> str:
+    lines = []
     for user in known_users:
         topics = [t.strip() for t in (user.coverage_topics or []) if t and str(t).strip()]
         if not topics:
             continue
         label = user.display_name.strip() if user.display_name and user.display_name.strip() else user.email
         lines.append(f"- {label} — {', '.join(topics)}")
-    if len(lines) == 1:
-        return ""
     return "\n".join(lines)
 
 
-def _assignee_rules(llm_ctx: LLMEmailContext) -> str:
-    coverage = _coverage_map_from_known_users(llm_ctx.known_users)
-    coverage_block = f"\n{coverage}\n" if coverage else "\n"
-    return f"""## Assignee rules
-A task may have multiple assignees. Assignees MUST be users from the Known users list — return their email addresses exactly as listed. Never invent people who are not in Known users.
-
-Build assignees as a UNION of all sources below, then dedupe by email. Drop any mention or coverage name that does not match a Known user (by display name or email). Coverage never removes To/Cc/Bcc known users.
-
-1. Explicit @mentions or tags in the Current message that match a Known user
-2. @team (case-insensitive): if Current message explicitly mentions @team, assignees MUST include every Known user (emails exactly as listed). @team alone is enough to require the full Known users set; still UNION with other sources below.
-3. REQUIRED: every To, Cc, or Bcc address that appears in Known users MUST be an assignee (additive — do not drop them when coverage matches)
-4. Coverage map (additive): scan Subject + Current message for matching topics/regions (case-insensitive; "oil" matches "Oil & Gas"; "Global Financials" matches Masira, Amin). For every match, ADD the mapped person only if they are in Known users.
-   Example: To aleena@... with body "report on Global Financials" and Aleena, Masira, Amin in Known users → aleena@..., masira@..., amin@...
-5. If nothing can be matched to Known users, return an empty assignees list
+def _assignee_rules_create(llm_ctx: LLMEmailContext) -> str:
+    coverage = _coverage_map(llm_ctx.known_users)
+    coverage_block = (
+        f"Coverage map:\n{coverage}"
+        if coverage
+        else "Coverage map: none configured."
+    )
+    return f"""Assignees must be emails from Known users only. Union and dedupe:
+1. @mentions in Current message matching Known users
+2. @team → all Known users
+3. Every Known user on To/Cc/Bcc
+4. Coverage: infer the sector/region/theme discussed in Subject + Current message; match by meaning to Coverage map topics (not exact words). Add each mapped person who is a Known user.
 {coverage_block}
-## Assignees final check
-Every assignees entry must be an email from Known users. If @team was mentioned, every Known user email must appear in assignees. Re-check To/Cc/Bcc: any Known user there must appear in assignees. Then add coverage matches. Coverage alone is never enough when Known To/Cc/Bcc recipients exist."""
+If none match, return []."""
 
 
-def intent_prompt(llm_ctx: LLMEmailContext) -> tuple[str, str]:
-    intent_values = ", ".join(f'"{i.value}"' for i in IntentType)
-    system = f"""You are an email intent classifier for a task management system.
-Classify into exactly one intent: {intent_values}.
+def _build_system_prompt(sections: list[str]) -> str:
+    return "\n\n".join(sections)
 
-{_INTENT_RULES}
 
-Return intent and confidence (0.0–1.0)."""
+def update_existing_task_prompt(llm_ctx: LLMEmailContext) -> tuple[str, str]:
+    system = _build_system_prompt(
+        [
+            _section("Role", "You are an email task updater for a task management system."),
+            _section(
+                "Task",
+                "An existing task matches this email thread. Produce structured task updates from the Current message.",
+            ),
+            _section("Input", _INPUT_DESCRIPTION),
+            _section("Output", _UPDATE_OUTPUT_RULES),
+            _section("Field rules", _FIELD_RULES),
+            _section("Assignee rules", _ASSIGNEE_RULES_UPDATE),
+            _section("Sanitization", _SANITIZATION_RULES),
+        ]
+    )
     return system, _format_email_context(llm_ctx)
 
 
-def _include_assignee_rules(intent: IntentType) -> bool:
-    return intent in (IntentType.NEW_TASK, IntentType.TASK_UPDATE)
-
-
-def extraction_prompt(intent: IntentType, llm_ctx: LLMEmailContext) -> tuple[str, str]:
-    field_rules = f"\n{_FIELD_RULES}\n" if intent != IntentType.REMINDER_FOLLOW_UP else ""
-    assignee_rules = f"\n{_assignee_rules(llm_ctx)}\n" if _include_assignee_rules(intent) else ""
-
-    system = f"""You are an email task field extractor for a task management system.
-Classified intent: {intent.value}
-
-Extract structured fields from the email.
-{field_rules}
-{_EXTRACTION_RULES[intent]}
-{assignee_rules}"""
-    return system, _format_email_context(llm_ctx)
-
-
-def summary_update_prompt(llm_ctx: LLMEmailContext) -> tuple[str, str]:
-    system = """You maintain a single narrative history tree for a task management system.
-Given any prior Task history summary and the Current message, return one updated summary that continues the story.
-
-Write a short chronological narrative useful for future task updates: who said what to whom (sender → To/Cc), assignees involved, asks, status/deadline/priority changes, and topic.
-Do not invent events. Do not return a separate history_summary field — only summary.
-Do NOT include PII or confidential data (no phone numbers, addresses, account numbers, personal IDs, passwords, or confidential deal/pricing details).
-Return only the summary field."""
+def create_or_skip_prompt(llm_ctx: LLMEmailContext) -> tuple[str, str]:
+    system = _build_system_prompt(
+        [
+            _section("Role", "You are an email task analyzer for a task management system."),
+            _section(
+                "Task",
+                "No existing task matches this email. Decide whether to create a task and extract fields if so.",
+            ),
+            _section("Input", _INPUT_DESCRIPTION),
+            _section("Decision rules", _CREATE_DECISION_RULES),
+            _section("Output", _CREATE_OUTPUT_RULES),
+            _section("Field rules", _FIELD_RULES),
+            _section("Assignee rules", _assignee_rules_create(llm_ctx)),
+            _section("Sanitization", _SANITIZATION_RULES),
+        ]
+    )
     return system, _format_email_context(llm_ctx)
