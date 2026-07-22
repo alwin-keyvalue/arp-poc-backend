@@ -33,6 +33,7 @@ class Task(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
+    note = Column(Text, nullable=True)
     source_email_id = Column(String(255), nullable=True)
     source_user = Column(String(255), nullable=True)
     source_link = Column(String(1024), nullable=True)

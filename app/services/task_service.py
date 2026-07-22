@@ -31,6 +31,7 @@ _TRACKED_FIELDS = {
     "title",
     "description",
     "summary",
+    "note",
     "status",
     "priority",
     "due_date",

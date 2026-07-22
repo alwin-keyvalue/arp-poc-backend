@@ -11,6 +11,7 @@ class TaskBase(BaseModel):
     title: str
     description: Optional[str] = None
     summary: Optional[str] = None
+    note: Optional[str] = None
     source_email_id: Optional[str] = None
     conversation_ids: List[str] = []
     internet_message_ids: List[str] = []
@@ -34,6 +35,7 @@ class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     summary: Optional[str] = None
+    note: Optional[str] = None
     source_email_id: Optional[str] = None
     conversation_ids: Optional[List[str]] = None
     internet_message_ids: Optional[List[str]] = None
