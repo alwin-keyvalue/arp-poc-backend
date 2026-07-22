@@ -97,6 +97,8 @@ class TaskService:
         assignee_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
         created_on: Optional[date] = None,
+        due_on: Optional[date] = None,
+        label: Optional[str] = None,
         scope: Optional[str] = None,
         deleted_only: bool = False,
     ) -> Tuple[List[Task], int]:
@@ -107,6 +109,8 @@ class TaskService:
             assignee_id=assignee_id,
             priority=priority,
             created_on=created_on,
+            due_on=due_on,
+            label=label,
             scope=scope,
             deleted_only=deleted_only,
         )
