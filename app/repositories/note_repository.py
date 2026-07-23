@@ -29,7 +29,7 @@ class NoteRepository:
         query = self.db.query(TaskNote).filter(TaskNote.task_id == task_id)
         if not include_deleted:
             query = query.filter(TaskNote.deleted_at.is_(None))
-        return query.order_by(TaskNote.created_at.desc()).all()
+        return query.order_by(TaskNote.created_at.asc()).all()
 
     def update(self, note: TaskNote, data: NoteUpdate) -> TaskNote:
         note.description = data.description
