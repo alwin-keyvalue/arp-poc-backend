@@ -92,6 +92,8 @@ class TaskRepository:
         priority: Optional[str] = None,
         created_on: Optional[date] = None,
         due_on: Optional[date] = None,
+        due_from: Optional[date] = None,
+        due_to: Optional[date] = None,
         label: Optional[str] = None,
         scope: Optional[str] = None,
         deleted_only: bool = False,
@@ -119,6 +121,12 @@ class TaskRepository:
 
         if due_on is not None:
             query = query.filter(Task.due_date == due_on)
+
+        if due_from is not None:
+            query = query.filter(Task.due_date.isnot(None), Task.due_date >= due_from)
+
+        if due_to is not None:
+            query = query.filter(Task.due_date.isnot(None), Task.due_date <= due_to)
 
         if label and (tag := label.strip()):
             # labels is a JSON array of strings — match a quoted element in the serialized value.

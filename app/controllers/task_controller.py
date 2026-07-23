@@ -63,6 +63,8 @@ def list_tasks(
     priority: Optional[TaskPriority] = Query(None, description="Filter by priority (P0, P1, P2)"),
     created_on: Optional[date] = Query(None, description="Only tasks created on this date (YYYY-MM-DD)"),
     due_on: Optional[date] = Query(None, description="Only tasks due on this date (YYYY-MM-DD)"),
+    due_from: Optional[date] = Query(None, description="Only tasks due on or after this date (YYYY-MM-DD)"),
+    due_to: Optional[date] = Query(None, description="Only tasks due on or before this date (YYYY-MM-DD)"),
     label: Optional[str] = Query(None, description="Only tasks that include this label"),
     scope: Optional[str] = Query(
         None,
@@ -80,6 +82,8 @@ def list_tasks(
         priority=priority.value if priority is not None else None,
         created_on=created_on,
         due_on=due_on,
+        due_from=due_from,
+        due_to=due_to,
         label=label,
         scope=scope,
         deleted_only=deleted_only,
