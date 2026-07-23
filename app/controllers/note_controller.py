@@ -53,5 +53,10 @@ def update_note(
 
 
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_note(task_id: uuid.UUID, note_id: uuid.UUID, service: NoteService = Depends(get_note_service)):
-    service.delete_note(task_id, note_id)
+def delete_note(
+    task_id: uuid.UUID,
+    note_id: uuid.UUID,
+    service: NoteService = Depends(get_note_service),
+    actor: TeamsUser = Depends(get_current_teams_user),
+):
+    service.delete_note(task_id, note_id, aad_object_id=actor.oid, email=actor.preferred_username)

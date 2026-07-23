@@ -68,6 +68,15 @@ class NoteService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
         return note
 
+    def _ensure_owner(
+        self, note: TaskNote, *, aad_object_id: Optional[str], email: Optional[str], action: str
+    ) -> None:
+        actor_id = self._resolve_actor_id(aad_object_id=aad_object_id, email=email)
+        if actor_id is None or note.created_by != actor_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=f"Only the note's author can {action} it"
+            )
+
     def update_note(
         self,
         task_id: uuid.UUID,
@@ -78,11 +87,17 @@ class NoteService:
         email: Optional[str] = None,
     ) -> TaskNote:
         note = self.get_note(task_id, note_id)
-        actor_id = self._resolve_actor_id(aad_object_id=aad_object_id, email=email)
-        if actor_id is None or note.created_by != actor_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the note's author can edit it")
+        self._ensure_owner(note, aad_object_id=aad_object_id, email=email, action="edit")
         return self.repository.update(note, data)
 
-    def delete_note(self, task_id: uuid.UUID, note_id: uuid.UUID) -> None:
+    def delete_note(
+        self,
+        task_id: uuid.UUID,
+        note_id: uuid.UUID,
+        *,
+        aad_object_id: Optional[str] = None,
+        email: Optional[str] = None,
+    ) -> None:
         note = self.get_note(task_id, note_id)
+        self._ensure_owner(note, aad_object_id=aad_object_id, email=email, action="delete")
         self.repository.soft_delete(note)
