@@ -11,6 +11,7 @@ from app.models.task_change_history import TaskChangeHistory
 from app.repositories.label_repository import LabelRepository
 from app.repositories.note_repository import NoteRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
+from app.repositories.task_notification_repository import TaskNotificationRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import (
@@ -59,6 +60,7 @@ class TaskService:
         history_repository: TaskChangeHistoryRepository,
         label_repository: LabelRepository,
         note_repository: NoteRepository,
+        notification_repository: TaskNotificationRepository,
     ):
         self.repository = repository
         self.user_repository = user_repository
@@ -66,6 +68,7 @@ class TaskService:
         self.history_repository = history_repository
         self.label_repository = label_repository
         self.note_repository = note_repository
+        self.notification_repository = notification_repository
 
     def _validate_assignees(self, assignee_ids: Optional[List[uuid.UUID]]) -> None:
         for assignee_id in assignee_ids or []:
@@ -73,6 +76,21 @@ class TaskService:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail=f"Assignee {assignee_id} not found"
                 )
+
+    def _determine_origin(
+        self, *, actor_oid: Optional[str], processed_email_id: Optional[uuid.UUID]
+    ) -> Tuple[str, Optional[uuid.UUID]]:
+        """Whether a change was triggered by a person (api/teams_bot) or an inbound email
+        (webhook/mailbox sync). processed_email_id, when present, always wins — apply_analysis
+        is the only caller that ever supplies one."""
+        if processed_email_id is not None:
+            return "email", processed_email_id
+        origin_id = None
+        if actor_oid:
+            actor = self.user_repository.get_by_aad_object_id(actor_oid)
+            if actor is not None:
+                origin_id = actor.id
+        return "user", origin_id
 
     async def create_task(
         self,
@@ -94,6 +112,12 @@ class TaskService:
             changed_by_oid=actor_oid,
             changed_by_name=actor_name,
             processed_email_id=processed_email_id,
+        )
+        origin_type, origin_id = self._determine_origin(
+            actor_oid=actor_oid, processed_email_id=processed_email_id
+        )
+        self.notification_repository.create_for_assignees(
+            task, notification_type="created", origin_type=origin_type, origin_id=origin_id
         )
         for assignee in task.assignees:
             await self.bot_service.notify_task_assigned(assignee, task)
@@ -240,9 +264,11 @@ class TaskService:
 
         updated = self.repository.update(task, task_data)
 
+        changed_any = False
         for field in tracked_fields:
             after = self._snapshot_field(updated, field)
             if after != before[field]:
+                changed_any = True
                 self.history_repository.record(
                     task=updated,
                     field_name=field,
@@ -253,6 +279,14 @@ class TaskService:
                     changed_by_name=actor_name,
                     processed_email_id=processed_email_id,
                 )
+
+        if changed_any:
+            origin_type, origin_id = self._determine_origin(
+                actor_oid=actor_oid, processed_email_id=processed_email_id
+            )
+            self.notification_repository.create_for_assignees(
+                updated, notification_type="updated", origin_type=origin_type, origin_id=origin_id
+            )
         return updated
 
     def delete_task(self, task_id: uuid.UUID) -> None:

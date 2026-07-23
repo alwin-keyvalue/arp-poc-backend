@@ -17,6 +17,7 @@ from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.label_repository import LabelRepository
 from app.repositories.note_repository import NoteRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
+from app.repositories.task_notification_repository import TaskNotificationRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import KnownUser
@@ -123,6 +124,7 @@ class MailboxSyncService:
                 TaskChangeHistoryRepository(db),
                 LabelRepository(db),
                 NoteRepository(db),
+                TaskNotificationRepository(db),
             )
             outcome_counts: Counter = Counter()
             for message in messages:

@@ -16,6 +16,7 @@ from app.models import (  # noqa: F401
     task_change_history,
     task_label,
     task_note,
+    task_notification,
     user,
 )
 
