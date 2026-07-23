@@ -121,6 +121,7 @@ class TaskService:
         search: Optional[str] = None,
         assignee_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
+        status: Optional[str] = None,
         created_on: Optional[date] = None,
         due_on: Optional[date] = None,
         due_from: Optional[date] = None,
@@ -128,6 +129,7 @@ class TaskService:
         label: Optional[str] = None,
         scope: Optional[str] = None,
         deleted_only: bool = False,
+        filter_operator: str = "and",
     ) -> Tuple[List[Task], int]:
         return self.repository.get_all(
             skip=skip,
@@ -135,6 +137,7 @@ class TaskService:
             search=search,
             assignee_id=assignee_id,
             priority=priority,
+            status=status,
             created_on=created_on,
             due_on=due_on,
             due_from=due_from,
@@ -142,6 +145,7 @@ class TaskService:
             label=label,
             scope=scope,
             deleted_only=deleted_only,
+            filter_operator=filter_operator,
         )
 
     def get_dashboard(self) -> TaskDashboardResponse:

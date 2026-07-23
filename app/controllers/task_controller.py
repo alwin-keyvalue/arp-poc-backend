@@ -10,7 +10,7 @@ from app.database import get_db
 from app.repositories.label_repository import LabelRepository
 from app.repositories.note_repository import NoteRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
-from app.models.task import TaskPriority
+from app.models.task import TaskPriority, TaskStatus
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.label import LabelResponse
@@ -61,6 +61,7 @@ def list_tasks(
     search: Optional[str] = Query(None, description="Case-insensitive match on title, description, or summary"),
     assignee_id: Optional[uuid.UUID] = Query(None, description="Only tasks assigned to this user"),
     priority: Optional[TaskPriority] = Query(None, description="Filter by priority (P0, P1, P2)"),
+    status: Optional[TaskStatus] = Query(None, description="Filter by status (to_do, done, dropped)"),
     created_on: Optional[date] = Query(None, description="Only tasks created on this date (YYYY-MM-DD)"),
     due_on: Optional[date] = Query(None, description="Only tasks due on this date (YYYY-MM-DD)"),
     due_from: Optional[date] = Query(None, description="Only tasks due on or after this date (YYYY-MM-DD)"),
@@ -72,6 +73,11 @@ def list_tasks(
         pattern="^(open|overdue|due_this_week|completed)$",
     ),
     deleted_only: bool = Query(False, description="If true, return only soft-deleted tasks instead of active ones"),
+    filter_operator: str = Query(
+        "and",
+        description="How to combine the filters above: 'and' (all must match) or 'or' (any one is enough)",
+        pattern="^(and|or)$",
+    ),
     service: TaskService = Depends(get_task_service),
 ):
     items, total = service.get_tasks(
@@ -80,6 +86,7 @@ def list_tasks(
         search=search,
         assignee_id=assignee_id,
         priority=priority.value if priority is not None else None,
+        status=status.value if status is not None else None,
         created_on=created_on,
         due_on=due_on,
         due_from=due_from,
@@ -87,6 +94,7 @@ def list_tasks(
         label=label,
         scope=scope,
         deleted_only=deleted_only,
+        filter_operator=filter_operator,
     )
     return TaskListResponse(items=items, total=total, skip=skip, limit=limit)
 

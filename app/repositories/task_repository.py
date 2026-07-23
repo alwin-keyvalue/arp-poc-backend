@@ -2,7 +2,7 @@ import uuid
 from datetime import date, timedelta
 from typing import List, Optional, Sequence, Tuple
 
-from sqlalchemy import String, and_, case, cast, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.label import Label
@@ -90,6 +90,7 @@ class TaskRepository:
         search: Optional[str] = None,
         assignee_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
+        status: Optional[str] = None,
         created_on: Optional[date] = None,
         due_on: Optional[date] = None,
         due_from: Optional[date] = None,
@@ -97,43 +98,53 @@ class TaskRepository:
         label: Optional[str] = None,
         scope: Optional[str] = None,
         deleted_only: bool = False,
+        filter_operator: str = "and",
     ) -> Tuple[List[Task], int]:
         deleted_filter = Task.deleted_at.isnot(None) if deleted_only else Task.deleted_at.is_(None)
         query = self.db.query(Task).filter(deleted_filter)
 
+        # Each entry is one filter's condition, built independently of the others so they can
+        # be combined either way below — "and" (every provided filter must match, the default
+        # and prior behavior) or "or" (any one of them is enough).
+        conditions = []
+
         if search and (term := search.strip()):
             pattern = f"%{term}%"
-            query = query.filter(
-                or_(
-                    Task.title.ilike(pattern),
-                    Task.description.ilike(pattern),
-                )
-            )
+            conditions.append(or_(Task.title.ilike(pattern), Task.description.ilike(pattern)))
 
         if assignee_id is not None:
-            query = query.filter(Task.assignees.any(User.id == assignee_id))
+            conditions.append(Task.assignees.any(User.id == assignee_id))
 
         if priority is not None:
-            query = query.filter(Task.priority == priority)
+            conditions.append(Task.priority == priority)
+
+        if status is not None:
+            conditions.append(Task.status == status)
 
         if created_on is not None:
-            query = query.filter(func.date(Task.created_at) == created_on)
+            conditions.append(func.date(Task.created_at) == created_on)
 
         if due_on is not None:
-            query = query.filter(Task.due_date == due_on)
+            conditions.append(Task.due_date == due_on)
 
+        due_range = []
         if due_from is not None:
-            query = query.filter(Task.due_date.isnot(None), Task.due_date >= due_from)
-
+            due_range.append(Task.due_date >= due_from)
         if due_to is not None:
-            query = query.filter(Task.due_date.isnot(None), Task.due_date <= due_to)
+            due_range.append(Task.due_date <= due_to)
+        if due_range:
+            conditions.append(and_(Task.due_date.isnot(None), *due_range))
 
         if label and (tag := label.strip()):
-            # labels is a JSON array of strings — match a quoted element in the serialized value.
-            query = query.filter(cast(Task.labels, String).like(f'%"{tag}"%'))
+            conditions.append(Task.labels.any(Label.name == tag))
 
         if scope is not None:
-            query = self._apply_scope_filter(query, scope)
+            scope_condition = self._scope_condition(scope)
+            if scope_condition is not None:
+                conditions.append(scope_condition)
+
+        if conditions:
+            query = query.filter(or_(*conditions) if filter_operator == "or" else and_(*conditions))
 
         total = query.count()
         items = (
@@ -146,26 +157,21 @@ class TaskRepository:
         return items, total
 
     @staticmethod
-    def _apply_scope_filter(query, scope: str, *, today: Optional[date] = None):
+    def _scope_condition(scope: str, *, today: Optional[date] = None):
         """Align list filtering with get_dashboard_stats buckets."""
         today = today or date.today()
         week_end = today + timedelta(days=7)
         is_open = Task.status.notin_(_CLOSED_STATUSES)
 
         if scope == "open":
-            return query.filter(is_open)
+            return is_open
         if scope == "overdue":
-            return query.filter(is_open, Task.due_date.isnot(None), Task.due_date < today)
+            return and_(is_open, Task.due_date.isnot(None), Task.due_date < today)
         if scope == "due_this_week":
-            return query.filter(
-                is_open,
-                Task.due_date.isnot(None),
-                Task.due_date >= today,
-                Task.due_date <= week_end,
-            )
+            return and_(is_open, Task.due_date.isnot(None), Task.due_date >= today, Task.due_date <= week_end)
         if scope == "completed":
-            return query.filter(Task.status == TaskStatus.DONE.value)
-        return query
+            return Task.status == TaskStatus.DONE.value
+        return None
 
     def update(self, task: Task, task_data: TaskUpdate) -> Task:
         for field, value in task_data.model_dump(exclude_unset=True, exclude=_TASK_EXCLUDED_FIELDS).items():
