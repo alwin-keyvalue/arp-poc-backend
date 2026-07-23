@@ -77,6 +77,16 @@ class TaskDashboardResponse(BaseModel):
     completed_pct: int
 
 
+class UserTaskStatsResponse(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    display_name: Optional[str] = None
+    open_tasks: int
+    overdue: int
+    due_this_week: int
+    completed: int
+
+
 class TaskChangeHistoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

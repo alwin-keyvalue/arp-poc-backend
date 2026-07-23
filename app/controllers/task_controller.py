@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.teams_auth import TeamsUser, get_current_teams_user
+from app.core.teams_auth import TeamsUser, get_current_teams_user, require_admin_user
 from app.database import get_db
 from app.repositories.label_repository import LabelRepository
 from app.repositories.note_repository import NoteRepository
@@ -23,6 +23,7 @@ from app.schemas.task import (
     TaskUpdate,
     TaskActivityPage,
     TaskChangeHistoryResponse,
+    UserTaskStatsResponse,
 )
 from app.services.bot_service import BotService, get_bot_service
 from app.services.task_service import TaskService
@@ -89,6 +90,15 @@ def list_tasks(
 @router.get("/dashboard", response_model=TaskDashboardResponse)
 def get_dashboard(service: TaskService = Depends(get_task_service)):
     return service.get_dashboard()
+
+
+@router.get(
+    "/stats/users",
+    response_model=List[UserTaskStatsResponse],
+    dependencies=[Depends(require_admin_user)],
+)
+def get_user_stats(service: TaskService = Depends(get_task_service)):
+    return service.get_user_stats()
 
 
 @router.get("/activity", response_model=TaskActivityPage)

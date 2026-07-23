@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.label import Label
 from app.models.task import Task, TaskStatus
+from app.models.task_assignee import TaskAssignee
 from app.models.user import User
-from app.schemas.task import TaskCreate, TaskDashboardResponse, TaskUpdate
+from app.schemas.task import TaskCreate, TaskDashboardResponse, TaskUpdate, UserTaskStatsResponse
 
 _CLOSED_STATUSES = (TaskStatus.DONE.value, TaskStatus.DROPPED.value)
 
@@ -191,6 +192,74 @@ class TaskRepository:
             .order_by(Task.created_at.asc())
             .all()
         )
+
+    def get_stats_by_user(self, *, today: Optional[date] = None) -> List[UserTaskStatsResponse]:
+        """Same open/overdue/due_this_week/completed buckets as get_dashboard_stats, grouped
+        per assignee instead of across all tasks. LEFT JOINs so every non-deleted user is
+        included (all-zero counts) even with no tasks assigned; a task with multiple
+        assignees counts toward each of them."""
+        today = today or date.today()
+        week_end = today + timedelta(days=7)
+        is_open = Task.status.notin_(_CLOSED_STATUSES)
+
+        rows = (
+            self.db.query(
+                User.id.label("user_id"),
+                User.email.label("email"),
+                User.display_name.label("display_name"),
+                func.coalesce(func.sum(case((is_open, 1), else_=0)), 0).label("open_tasks"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(is_open, Task.due_date.isnot(None), Task.due_date < today), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("overdue"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    is_open,
+                                    Task.due_date.isnot(None),
+                                    Task.due_date >= today,
+                                    Task.due_date <= week_end,
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("due_this_week"),
+                func.coalesce(
+                    func.sum(case((Task.status == TaskStatus.DONE.value, 1), else_=0)),
+                    0,
+                ).label("completed"),
+            )
+            .select_from(User)
+            .outerjoin(TaskAssignee, TaskAssignee.user_id == User.id)
+            .outerjoin(Task, and_(Task.id == TaskAssignee.task_id, Task.deleted_at.is_(None)))
+            .filter(User.is_deleted.is_(False))
+            .group_by(User.id, User.email, User.display_name)
+            .order_by(User.email)
+            .all()
+        )
+
+        return [
+            UserTaskStatsResponse(
+                user_id=row.user_id,
+                email=row.email,
+                display_name=row.display_name,
+                open_tasks=int(row.open_tasks or 0),
+                overdue=int(row.overdue or 0),
+                due_this_week=int(row.due_this_week or 0),
+                completed=int(row.completed or 0),
+            )
+            for row in rows
+        ]
 
     def get_dashboard_stats(self, *, today: Optional[date] = None) -> TaskDashboardResponse:
         today = today or date.today()

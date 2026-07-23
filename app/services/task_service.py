@@ -21,7 +21,15 @@ from app.schemas.email_analysis import (
 )
 from app.schemas.note import NoteResponse
 from app.schemas.parsed_email import ParsedEmailInput
-from app.schemas.task import TaskCreate, TaskDashboardResponse, TaskDetailResponse, TaskResponse, TaskUpdate, TaskActivityPage
+from app.schemas.task import (
+    TaskCreate,
+    TaskDashboardResponse,
+    TaskDetailResponse,
+    TaskResponse,
+    TaskUpdate,
+    TaskActivityPage,
+    UserTaskStatsResponse,
+)
 from app.services.bot_service import BotService
 
 logger = logging.getLogger(__name__)
@@ -132,6 +140,9 @@ class TaskService:
 
     def get_dashboard(self) -> TaskDashboardResponse:
         return self.repository.get_dashboard_stats()
+
+    def get_user_stats(self) -> List[UserTaskStatsResponse]:
+        return self.repository.get_stats_by_user()
 
     def get_task_history(self, task_id: uuid.UUID) -> List[TaskChangeHistory]:
         self.get_task(task_id)

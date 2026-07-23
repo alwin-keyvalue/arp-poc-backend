@@ -5,9 +5,12 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 import jwt
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.database import get_db
+from app.repositories.user_repository import UserRepository
 
 logger = logging.getLogger("app.teams_auth")
 
@@ -104,3 +107,21 @@ async def get_current_teams_user(authorization: Optional[str] = Header(None)) ->
         name=payload.get("name"),
         preferred_username=payload.get("preferred_username") or payload.get("upn"),
     )
+
+
+def require_admin_user(
+    actor: TeamsUser = Depends(get_current_teams_user),
+    db: Session = Depends(get_db),
+) -> TeamsUser:
+    """Gate for admin-only endpoints: resolves the authenticated Teams identity to its internal
+    User row (aad_object_id first, email fallback — same order as get_current_user /
+    get_activity_for_user) and requires role == 'admin'."""
+    user_repo = UserRepository(db)
+    user = None
+    if actor.oid:
+        user = user_repo.get_by_aad_object_id(actor.oid)
+    if user is None and actor.preferred_username:
+        user = user_repo.get_by_email(actor.preferred_username)
+    if user is None or user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    return actor
