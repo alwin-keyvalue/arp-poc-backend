@@ -81,6 +81,7 @@ class TaskService:
         source: str = "api",
         actor_oid: Optional[str] = None,
         actor_name: Optional[str] = None,
+        processed_email_id: Optional[uuid.UUID] = None,
     ) -> Task:
         self._validate_assignees(task_data.assignee_ids)
         task = self.repository.create(task_data)
@@ -92,6 +93,7 @@ class TaskService:
             source=source,
             changed_by_oid=actor_oid,
             changed_by_name=actor_name,
+            processed_email_id=processed_email_id,
         )
         for assignee in task.assignees:
             await self.bot_service.notify_task_assigned(assignee, task)
@@ -217,6 +219,7 @@ class TaskService:
         source: str = "api",
         actor_oid: Optional[str] = None,
         actor_name: Optional[str] = None,
+        processed_email_id: Optional[uuid.UUID] = None,
     ) -> Task:
         task = self.get_task(task_id)
         self._validate_assignees(task_data.assignee_ids)
@@ -240,6 +243,7 @@ class TaskService:
                     source=source,
                     changed_by_oid=actor_oid,
                     changed_by_name=actor_name,
+                    processed_email_id=processed_email_id,
                 )
         return updated
 
@@ -274,6 +278,7 @@ class TaskService:
         created_via: Optional[str] = None,
         existing_task: Optional[Task] = None,
         thread_conversation_ids: Optional[List[str]] = None,
+        processed_email_id: Optional[uuid.UUID] = None,
     ) -> Optional[Task]:
         seed_conversation_ids = list(thread_conversation_ids or [])
         if metadata.conversation_id:
@@ -304,7 +309,9 @@ class TaskService:
                 source_user=from_address,
                 source_link=metadata.web_link,
             )
-            return await self.create_task(task_data, source="email_analysis")
+            return await self.create_task(
+                task_data, source="email_analysis", processed_email_id=processed_email_id
+            )
 
         if analysis.action == ActionType.UPDATE:
             if not isinstance(analysis.payload, TaskUpdatePayload):
@@ -339,6 +346,7 @@ class TaskService:
                 task.id,
                 TaskUpdate(**update_data),
                 source="email_analysis",
+                processed_email_id=processed_email_id,
             )
 
         logger.warning(

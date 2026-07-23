@@ -99,6 +99,7 @@ class TaskChangeHistoryResponse(BaseModel):
     source: str
     changed_by_oid: Optional[str] = None
     changed_by_name: Optional[str] = None
+    processed_email_id: Optional[uuid.UUID] = None
     changed_at: datetime
 
 

@@ -212,7 +212,7 @@ class WebhookProcessorService:
             processed_repo.mark_processed(user_id, message.internet_message_id)
             return MessageOutcome.WHITELIST_SKIPPED
 
-        processed_repo.mark_processed(user_id, message.internet_message_id)
+        processed_email_id = processed_repo.mark_processed(user_id, message.internet_message_id)
 
         if known_users is None:
             known_users = [
@@ -304,6 +304,7 @@ class WebhookProcessorService:
             created_via=created_via,
             existing_task=existing_task,
             thread_conversation_ids=thread_conversation_ids or None,
+            processed_email_id=processed_email_id,
         )
         if task is not None:
             logger.info("Task %s %s from email %s", task.id, analysis.action.value, message.id)

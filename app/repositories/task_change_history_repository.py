@@ -23,6 +23,7 @@ class TaskChangeHistoryRepository:
         source: str,
         changed_by_oid: Optional[str] = None,
         changed_by_name: Optional[str] = None,
+        processed_email_id: Optional[uuid.UUID] = None,
     ) -> TaskChangeHistory:
         entry = TaskChangeHistory(
             task_id=task.id,
@@ -33,6 +34,7 @@ class TaskChangeHistoryRepository:
             source=source,
             changed_by_oid=changed_by_oid,
             changed_by_name=changed_by_name,
+            processed_email_id=processed_email_id,
         )
         self.db.add(entry)
         self.db.commit()

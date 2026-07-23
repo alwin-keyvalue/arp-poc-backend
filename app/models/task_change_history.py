@@ -26,4 +26,7 @@ class TaskChangeHistory(Base):
     changed_by_oid = Column(String(255), nullable=True)
     changed_by_name = Column(String(255), nullable=True)
     source = Column(String(50), nullable=False)
+    # Set only when source == "email_analysis" — the inbound email whose analysis produced
+    # this change. Changes made through direct API calls (source == "api") leave this null.
+    processed_email_id = Column(Uuid(as_uuid=True), ForeignKey("processed_emails.id"), nullable=True)
     changed_at = Column(DateTime, server_default=func.now(), nullable=False)

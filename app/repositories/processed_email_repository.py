@@ -18,11 +18,24 @@ class ProcessedEmailRepository:
             is not None
         )
 
-    def mark_processed(self, user_id: uuid.UUID, internet_message_id: str) -> None:
-        self.db.add(ProcessedEmail(user_id=user_id, message_id=internet_message_id))
+    def mark_processed(self, user_id: uuid.UUID, internet_message_id: str) -> uuid.UUID:
+        """Returns the id of the (now guaranteed-persisted) row for this (user_id,
+        internet_message_id) pair — this call's own insert if it won, otherwise the row
+        from whichever concurrent caller won the race (see the IntegrityError comment below)."""
+        entry = ProcessedEmail(user_id=user_id, message_id=internet_message_id)
+        self.db.add(entry)
         try:
             self.db.commit()
+            return entry.id
         except IntegrityError:
-            # Webhook delivery and a scheduled sync can race on the same message;
-            # the unique constraint is the source of truth, this is just a no-op retry.
+            # Webhook delivery and a scheduled sync can race on the same message; the unique
+            # constraint is the source of truth, so this call's own row (entry.id, generated
+            # client-side and never actually persisted) isn't valid — look up the row that
+            # actually won instead.
             self.db.rollback()
+            existing = (
+                self.db.query(ProcessedEmail)
+                .filter(ProcessedEmail.user_id == user_id, ProcessedEmail.message_id == internet_message_id)
+                .one()
+            )
+            return existing.id
