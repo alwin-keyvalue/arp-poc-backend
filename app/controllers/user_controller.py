@@ -9,6 +9,7 @@ from app.core.internal_auth import (
     require_internal_secret_or_teams_user,
     verify_internal_auth_secret,
 )
+from app.core.teams_auth import TeamsUser, get_current_teams_user
 from app.database import get_db
 from app.dependencies import get_http_client
 from app.repositories.user_repository import UserRepository
@@ -47,6 +48,14 @@ def list_users(
     service: UserService = Depends(get_user_service),
 ):
     return service.list_users(skip=skip, limit=limit)
+
+
+@router.get("/me", response_model=UserResponse)
+def get_current_user(
+    actor: TeamsUser = Depends(get_current_teams_user),
+    service: UserService = Depends(get_user_service),
+):
+    return service.get_current_user(aad_object_id=actor.oid, email=actor.preferred_username)
 
 
 @router.get(

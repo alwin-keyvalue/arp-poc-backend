@@ -16,11 +16,13 @@ class UserRepository:
         *,
         email: str,
         display_name: str | None = None,
+        role: str = "user",
         coverage_topics: list[str] | None = None,
     ) -> User:
         user = User(
             email=email.strip().lower(),
             display_name=display_name,
+            role=role,
             coverage_topics=list(coverage_topics or []),
             is_deleted=False,
         )
@@ -80,10 +82,13 @@ class UserRepository:
         user: User,
         *,
         display_name: str | None = None,
+        role: str | None = None,
         coverage_topics: list[str] | None = None,
     ) -> User:
         if display_name is not None:
             user.display_name = display_name
+        if role is not None:
+            user.role = role
         if coverage_topics is not None:
             user.coverage_topics = list(coverage_topics)
         self.db.commit()

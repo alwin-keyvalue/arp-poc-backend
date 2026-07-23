@@ -9,10 +9,13 @@ from app.config import settings
 from app.database import Base, quote_ident
 from app.models import (  # noqa: F401
     graph_subscription,
+    label,
     processed_email,
     task,
     task_assignee,
     task_change_history,
+    task_label,
+    task_note,
     user,
 )
 

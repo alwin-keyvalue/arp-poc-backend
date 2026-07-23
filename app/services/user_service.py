@@ -1,5 +1,6 @@
 import logging
 import uuid
+from typing import Optional
 
 from fastapi import HTTPException
 
@@ -24,6 +25,7 @@ class UserService:
             user = self._users.update(
                 existing,
                 display_name=data.display_name,
+                role=data.role,
                 coverage_topics=data.coverage_topics,
             )
             return UserResponse.model_validate(user)
@@ -31,6 +33,7 @@ class UserService:
         user = self._users.create(
             email=data.email,
             display_name=data.display_name,
+            role=data.role,
             coverage_topics=data.coverage_topics,
         )
         return UserResponse.model_validate(user)
@@ -44,6 +47,19 @@ class UserService:
             raise HTTPException(status_code=404, detail="User not found.")
         return UserResponse.model_validate(user)
 
+    def get_current_user(self, *, aad_object_id: Optional[str], email: Optional[str]) -> UserResponse:
+        """Resolve the authenticated Teams identity to its internal User row. aad_object_id is
+        tried first (set once a user has interacted with the Teams bot); email is the fallback
+        for a user known only via SSO — same resolution order as get_activity_for_user."""
+        user = None
+        if aad_object_id:
+            user = self._users.get_by_aad_object_id(aad_object_id)
+        if user is None and email:
+            user = self._users.get_by_email(email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+        return UserResponse.model_validate(user)
+
     def update_user(self, user_id: uuid.UUID, data: UserUpdate) -> UserResponse:
         user = self._users.get_by_id(user_id)
         if not user:
@@ -51,6 +67,7 @@ class UserService:
         updated = self._users.update(
             user,
             display_name=data.display_name,
+            role=data.role,
             coverage_topics=data.coverage_topics,
         )
         return UserResponse.model_validate(updated)
