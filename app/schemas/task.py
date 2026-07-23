@@ -75,6 +75,7 @@ class TaskDashboardResponse(BaseModel):
     due_today: int
     due_this_week: int
     completed_pct: int
+    p0_tasks: int
 
 
 class UserTaskStatsResponse(BaseModel):

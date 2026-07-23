@@ -6,7 +6,7 @@ from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.label import Label
-from app.models.task import Task, TaskStatus
+from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.task_assignee import TaskAssignee
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskDashboardResponse, TaskUpdate, UserTaskStatsResponse
@@ -318,6 +318,10 @@ class TaskRepository:
                     func.sum(case((Task.status == TaskStatus.DONE.value, 1), else_=0)),
                     0,
                 ).label("done"),
+                func.coalesce(
+                    func.sum(case((Task.priority == TaskPriority.P0.value, 1), else_=0)),
+                    0,
+                ).label("p0_tasks"),
             )
             .filter(Task.deleted_at.is_(None))
             .one()
@@ -332,4 +336,5 @@ class TaskRepository:
             due_today=int(row.due_today or 0),
             due_this_week=int(row.due_this_week or 0),
             completed_pct=round((done / total) * 100) if total else 0,
+            p0_tasks=int(row.p0_tasks or 0),
         )
