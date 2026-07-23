@@ -8,6 +8,7 @@ from app.core.teams_auth import TeamsUser, get_current_teams_user
 from app.database import get_db
 from app.repositories.note_repository import NoteRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.user_repository import UserRepository
 from app.schemas.note import NoteCreate, NoteResponse, NoteUpdate
 from app.services.note_service import NoteService
 
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/tasks/{task_id}/notes", tags=["notes"], dependencies
 
 
 def get_note_service(db: Session = Depends(get_db)) -> NoteService:
-    return NoteService(NoteRepository(db), TaskRepository(db))
+    return NoteService(NoteRepository(db), TaskRepository(db), UserRepository(db))
 
 
 @router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
@@ -25,7 +26,7 @@ def create_note(
     service: NoteService = Depends(get_note_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    return service.create_note(task_id, note_data, created_by=actor.display_label)
+    return service.create_note(task_id, note_data, aad_object_id=actor.oid, email=actor.preferred_username)
 
 
 @router.get("", response_model=List[NoteResponse])
@@ -44,8 +45,11 @@ def update_note(
     note_id: uuid.UUID,
     note_data: NoteUpdate,
     service: NoteService = Depends(get_note_service),
+    actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    return service.update_note(task_id, note_id, note_data)
+    return service.update_note(
+        task_id, note_id, note_data, aad_object_id=actor.oid, email=actor.preferred_username
+    )
 
 
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
