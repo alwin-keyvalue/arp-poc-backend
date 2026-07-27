@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.integrations.microsoft_graph.client import GraphClient
 from app.models.task import Task, TaskStatus
-from app.models.user import User
+from app.models.user import SYSTEM_USER_ID, User
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
@@ -175,7 +175,7 @@ class BotService:
                 old_value=previous_status,
                 new_value=task.status,
                 source="teams_bot",
-                updated_by=actor.id if actor is not None else None,
+                updated_by=actor.id if actor is not None else SYSTEM_USER_ID,
             )
 
         card = CardFactory.adaptive_card(_build_task_action_result_card(task, confirmation))

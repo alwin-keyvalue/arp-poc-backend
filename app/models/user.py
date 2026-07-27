@@ -6,6 +6,11 @@ from sqlalchemy.sql import func
 
 from app.database import Base
 
+# Placeholder actor for task_change_history.updated_by on automatic changes (email/webhook
+# -triggered) that have no real acting user. Seeded by the
+# 8f1c2a9d4b6e_seed_system_user migration.
+SYSTEM_USER_ID = uuid.UUID(int=0)
+
 
 class User(Base):
     __tablename__ = "users"

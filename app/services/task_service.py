@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from app.models.label import Label
 from app.models.task import Task
 from app.models.task_change_history import TaskChangeHistory
+from app.models.user import SYSTEM_USER_ID
 from app.repositories.label_repository import LabelRepository
 from app.repositories.note_repository import NoteRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
@@ -82,11 +83,15 @@ class TaskService:
                     status_code=status.HTTP_404_NOT_FOUND, detail=f"Assignee {assignee_id} not found"
                 )
 
-    def _resolve_updated_by(self, actor_oid: Optional[str]) -> Optional[uuid.UUID]:
-        if not actor_oid:
-            return None
-        actor = self.user_repository.get_by_aad_object_id(actor_oid)
-        return actor.id if actor is not None else None
+    def _resolve_updated_by(self, actor_oid: Optional[str]) -> uuid.UUID:
+        """Automatic changes (no actor_oid — e.g. email/webhook-triggered) and changes whose
+        actor can't be resolved to a known User both attribute to the seeded system user
+        rather than leaving updated_by null."""
+        if actor_oid:
+            actor = self.user_repository.get_by_aad_object_id(actor_oid)
+            if actor is not None:
+                return actor.id
+        return SYSTEM_USER_ID
 
     async def create_task(
         self,
