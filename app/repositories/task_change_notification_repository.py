@@ -10,9 +10,9 @@ from app.models.task_change_notification import TaskChangeNotification
 from app.models.user import User
 
 # The row shape returned by list_and_count_for_user: the notification itself, its history
-# entry, the task the history row belongs to, and the notified user (== the user_id filtered
-# on, joined rather than reused so this stays a self-contained query result).
-NotificationRow = Tuple[TaskChangeNotification, TaskChangeHistory, Task, User]
+# entry, the task the history row belongs to, and the user who made the change (None for
+# email/webhook-triggered changes, which have no acting user).
+NotificationRow = Tuple[TaskChangeNotification, TaskChangeHistory, Task, Optional[User]]
 
 
 class TaskChangeNotificationRepository:
@@ -39,7 +39,7 @@ class TaskChangeNotificationRepository:
             self.db.query(TaskChangeNotification, TaskChangeHistory, Task, User)
             .join(TaskChangeHistory, TaskChangeNotification.task_change_history_id == TaskChangeHistory.id)
             .join(Task, TaskChangeHistory.task_id == Task.id)
-            .join(User, TaskChangeNotification.user_id == User.id)
+            .outerjoin(User, TaskChangeHistory.updated_by == User.id)
             .filter(TaskChangeNotification.user_id == user_id)
         )
         if source is not None:

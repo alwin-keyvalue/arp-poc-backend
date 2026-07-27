@@ -277,20 +277,19 @@ class TaskService:
             TaskNotificationResponse(
                 id=notification.id,
                 created_at=notification.created_at,
-                user=UserResponse.model_validate(notified_user),
                 task_change_history=TaskChangeHistoryDetail(
                     id=history.id,
                     field_name=history.field_name,
                     old_value=history.old_value,
                     new_value=history.new_value,
                     source=history.source,
-                    updated_by=history.updated_by,
+                    updated_by=UserResponse.model_validate(updated_by_user) if updated_by_user is not None else None,
                     processed_email_id=history.processed_email_id,
                     changed_at=history.changed_at,
                     task=TaskResponse.model_validate(task),
                 ),
             )
-            for notification, history, task, notified_user in rows
+            for notification, history, task, updated_by_user in rows
         ]
         return TaskNotificationPage(items=items, total=total, page=page, page_size=page_size)
 

@@ -14,7 +14,7 @@ class TaskChangeHistoryDetail(BaseModel):
     old_value: Optional[Any] = None
     new_value: Optional[Any] = None
     source: str
-    updated_by: Optional[uuid.UUID] = None
+    updated_by: Optional[UserResponse] = None
     processed_email_id: Optional[uuid.UUID] = None
     changed_at: datetime
     task: TaskResponse
@@ -23,7 +23,6 @@ class TaskChangeHistoryDetail(BaseModel):
 class TaskNotificationResponse(BaseModel):
     id: uuid.UUID
     created_at: datetime
-    user: UserResponse
     task_change_history: TaskChangeHistoryDetail
 
 
