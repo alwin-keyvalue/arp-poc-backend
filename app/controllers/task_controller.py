@@ -144,13 +144,23 @@ def list_task_labels(task_id: uuid.UUID, service: TaskService = Depends(get_task
 
 
 @router.post("/{task_id}/labels/{label_id}", response_model=LabelResponse, status_code=status.HTTP_201_CREATED)
-def attach_task_label(task_id: uuid.UUID, label_id: uuid.UUID, service: TaskService = Depends(get_task_service)):
-    return service.attach_label(task_id, label_id)
+def attach_task_label(
+    task_id: uuid.UUID,
+    label_id: uuid.UUID,
+    service: TaskService = Depends(get_task_service),
+    actor: TeamsUser = Depends(get_current_teams_user),
+):
+    return service.attach_label(task_id, label_id, actor_oid=actor.oid, actor_name=actor.display_label)
 
 
 @router.delete("/{task_id}/labels/{label_id}", status_code=status.HTTP_204_NO_CONTENT)
-def detach_task_label(task_id: uuid.UUID, label_id: uuid.UUID, service: TaskService = Depends(get_task_service)):
-    service.detach_label(task_id, label_id)
+def detach_task_label(
+    task_id: uuid.UUID,
+    label_id: uuid.UUID,
+    service: TaskService = Depends(get_task_service),
+    actor: TeamsUser = Depends(get_current_teams_user),
+):
+    service.detach_label(task_id, label_id, actor_oid=actor.oid, actor_name=actor.display_label)
 
 
 @router.put("/{task_id}", response_model=TaskResponse)
@@ -164,5 +174,9 @@ def update_task(
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_task(task_id: uuid.UUID, service: TaskService = Depends(get_task_service)):
-    service.delete_task(task_id)
+def delete_task(
+    task_id: uuid.UUID,
+    service: TaskService = Depends(get_task_service),
+    actor: TeamsUser = Depends(get_current_teams_user),
+):
+    service.delete_task(task_id, actor_oid=actor.oid, actor_name=actor.display_label)

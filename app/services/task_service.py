@@ -186,20 +186,62 @@ class TaskService:
         task = self.get_task(task_id)
         return task.labels
 
-    def attach_label(self, task_id: uuid.UUID, label_id: uuid.UUID) -> Label:
+    @staticmethod
+    def _label_names(task: Task) -> List[str]:
+        return sorted(label.name for label in task.labels)
+
+    def attach_label(
+        self,
+        task_id: uuid.UUID,
+        label_id: uuid.UUID,
+        *,
+        actor_oid: Optional[str] = None,
+        actor_name: Optional[str] = None,
+    ) -> Label:
         task = self.get_task(task_id)
         label = self.label_repository.get_by_id(label_id)
         if label is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Label not found")
+        before = self._label_names(task)
         self.repository.attach_label(task, label)
+        after = self._label_names(task)
+        if after != before:
+            self.history_repository.record(
+                task=task,
+                field_name="labels",
+                old_value=before,
+                new_value=after,
+                source="api",
+                changed_by_oid=actor_oid,
+                changed_by_name=actor_name,
+            )
         return label
 
-    def detach_label(self, task_id: uuid.UUID, label_id: uuid.UUID) -> None:
+    def detach_label(
+        self,
+        task_id: uuid.UUID,
+        label_id: uuid.UUID,
+        *,
+        actor_oid: Optional[str] = None,
+        actor_name: Optional[str] = None,
+    ) -> None:
         task = self.get_task(task_id)
         label = self.label_repository.get_by_id(label_id)
         if label is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Label not found")
+        before = self._label_names(task)
         self.repository.detach_label(task, label)
+        after = self._label_names(task)
+        if after != before:
+            self.history_repository.record(
+                task=task,
+                field_name="labels",
+                old_value=before,
+                new_value=after,
+                source="api",
+                changed_by_oid=actor_oid,
+                changed_by_name=actor_name,
+            )
 
     def get_activity_for_user(
         self,
@@ -289,9 +331,24 @@ class TaskService:
             )
         return updated
 
-    def delete_task(self, task_id: uuid.UUID) -> None:
+    def delete_task(
+        self,
+        task_id: uuid.UUID,
+        *,
+        actor_oid: Optional[str] = None,
+        actor_name: Optional[str] = None,
+    ) -> None:
         task = self.get_task(task_id)
         self.repository.soft_delete(task)
+        self.history_repository.record(
+            task=task,
+            field_name="deleted_at",
+            old_value=None,
+            new_value=task.deleted_at.isoformat() if task.deleted_at else None,
+            source="api",
+            changed_by_oid=actor_oid,
+            changed_by_name=actor_name,
+        )
 
     @staticmethod
     def _dedupe(values: Sequence[str]) -> List[str]:
