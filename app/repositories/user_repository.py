@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.user import User
+from app.models.user import SYSTEM_USER_ID, User
 
 
 class UserRepository:
@@ -70,7 +70,7 @@ class UserRepository:
     def get_all(self, skip: int = 0, limit: int = 100) -> List[User]:
         return (
             self.db.query(User)
-            .filter(User.is_deleted.is_(False))
+            .filter(User.is_deleted.is_(False), User.id != SYSTEM_USER_ID)
             .order_by(User.created_at)
             .offset(skip)
             .limit(limit)
