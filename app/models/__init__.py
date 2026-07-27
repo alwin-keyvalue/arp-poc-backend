@@ -6,7 +6,7 @@ from app.models.task_assignee import TaskAssignee
 from app.models.task_change_history import TaskChangeHistory
 from app.models.task_label import TaskLabel
 from app.models.task_note import TaskNote
-from app.models.task_notification import TaskNotification
+from app.models.task_change_notification import TaskChangeNotification
 from app.models.user import User
 
 __all__ = [
@@ -19,5 +19,5 @@ __all__ = [
     "TaskChangeHistory",
     "TaskLabel",
     "TaskNote",
-    "TaskNotification",
+    "TaskChangeNotification",
 ]

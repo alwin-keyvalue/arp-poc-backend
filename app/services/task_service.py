@@ -11,7 +11,7 @@ from app.models.task_change_history import TaskChangeHistory
 from app.repositories.label_repository import LabelRepository
 from app.repositories.note_repository import NoteRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
-from app.repositories.task_notification_repository import TaskNotificationRepository
+from app.repositories.task_change_notification_repository import TaskChangeNotificationRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.email_analysis import (
@@ -21,6 +21,7 @@ from app.schemas.email_analysis import (
     TaskUpdatePayload,
 )
 from app.schemas.note import NoteResponse
+from app.schemas.notification import TaskNotificationPage, TaskNotificationResponse
 from app.schemas.parsed_email import ParsedEmailInput
 from app.schemas.task import (
     TaskCreate,
@@ -28,7 +29,6 @@ from app.schemas.task import (
     TaskDetailResponse,
     TaskResponse,
     TaskUpdate,
-    TaskActivityPage,
     UserTaskStatsResponse,
 )
 from app.services.bot_service import BotService
@@ -60,7 +60,7 @@ class TaskService:
         history_repository: TaskChangeHistoryRepository,
         label_repository: LabelRepository,
         note_repository: NoteRepository,
-        notification_repository: TaskNotificationRepository,
+        notification_repository: TaskChangeNotificationRepository,
     ):
         self.repository = repository
         self.user_repository = user_repository
@@ -77,20 +77,11 @@ class TaskService:
                     status_code=status.HTTP_404_NOT_FOUND, detail=f"Assignee {assignee_id} not found"
                 )
 
-    def _determine_origin(
-        self, *, actor_oid: Optional[str], processed_email_id: Optional[uuid.UUID]
-    ) -> Tuple[str, Optional[uuid.UUID]]:
-        """Whether a change was triggered by a person (api/teams_bot) or an inbound email
-        (webhook/mailbox sync). processed_email_id, when present, always wins — apply_analysis
-        is the only caller that ever supplies one."""
-        if processed_email_id is not None:
-            return "email", processed_email_id
-        origin_id = None
-        if actor_oid:
-            actor = self.user_repository.get_by_aad_object_id(actor_oid)
-            if actor is not None:
-                origin_id = actor.id
-        return "user", origin_id
+    def _resolve_updated_by(self, actor_oid: Optional[str]) -> Optional[uuid.UUID]:
+        if not actor_oid:
+            return None
+        actor = self.user_repository.get_by_aad_object_id(actor_oid)
+        return actor.id if actor is not None else None
 
     async def create_task(
         self,
@@ -98,7 +89,6 @@ class TaskService:
         *,
         source: str = "api",
         actor_oid: Optional[str] = None,
-        actor_name: Optional[str] = None,
         processed_email_id: Optional[uuid.UUID] = None,
     ) -> Task:
         self._validate_assignees(task_data.assignee_ids)
@@ -109,15 +99,8 @@ class TaskService:
             old_value=None,
             new_value=task.status,
             source=source,
-            changed_by_oid=actor_oid,
-            changed_by_name=actor_name,
+            updated_by=self._resolve_updated_by(actor_oid),
             processed_email_id=processed_email_id,
-        )
-        origin_type, origin_id = self._determine_origin(
-            actor_oid=actor_oid, processed_email_id=processed_email_id
-        )
-        self.notification_repository.create_for_assignees(
-            task, notification_type="created", origin_type=origin_type, origin_id=origin_id
         )
         for assignee in task.assignees:
             await self.bot_service.notify_task_assigned(assignee, task)
@@ -174,7 +157,7 @@ class TaskService:
 
     def get_dashboard(self, *, aad_object_id: Optional[str], email: Optional[str]) -> TaskDashboardResponse:
         """open_tasks is scoped to the current user's own open tasks; every other field stays
-        a global aggregate. Same identity resolution order as get_activity_for_user."""
+        a global aggregate. Same identity resolution order as get_notifications_for_user."""
         user = None
         if aad_object_id:
             user = self.user_repository.get_by_aad_object_id(aad_object_id)
@@ -210,7 +193,6 @@ class TaskService:
         label_id: uuid.UUID,
         *,
         actor_oid: Optional[str] = None,
-        actor_name: Optional[str] = None,
     ) -> Label:
         task = self.get_task(task_id)
         label = self.label_repository.get_by_id(label_id)
@@ -226,8 +208,7 @@ class TaskService:
                 old_value=before,
                 new_value=after,
                 source="api",
-                changed_by_oid=actor_oid,
-                changed_by_name=actor_name,
+                updated_by=self._resolve_updated_by(actor_oid),
             )
         return label
 
@@ -237,7 +218,6 @@ class TaskService:
         label_id: uuid.UUID,
         *,
         actor_oid: Optional[str] = None,
-        actor_name: Optional[str] = None,
     ) -> None:
         task = self.get_task(task_id)
         label = self.label_repository.get_by_id(label_id)
@@ -253,21 +233,23 @@ class TaskService:
                 old_value=before,
                 new_value=after,
                 source="api",
-                changed_by_oid=actor_oid,
-                changed_by_name=actor_name,
+                updated_by=self._resolve_updated_by(actor_oid),
             )
 
-    def get_activity_for_user(
+    def get_notifications_for_user(
         self,
         *,
         aad_object_id: Optional[str],
         email: Optional[str],
         page: int = 1,
         page_size: int = 20,
-    ) -> TaskActivityPage:
-        """Cross-task activity feed: every change-history row for tasks the given identity is
-        assigned to, most recent first. aad_object_id is tried first (set once a user has
-        interacted with the Teams bot); email is the fallback for a user known only via SSO."""
+        source: Optional[str] = None,
+    ) -> TaskNotificationPage:
+        """Cross-task notification feed: every task_change_notification row addressed to the
+        given identity, most recent first. aad_object_id is tried first (set once a user has
+        interacted with the Teams bot); email is the fallback for a user known only via SSO.
+        source, when given, filters to notifications whose underlying history row was recorded
+        with that task_change_history.source (e.g. "api", "email_analysis", "teams_bot")."""
         user = None
         if aad_object_id:
             user = self.user_repository.get_by_aad_object_id(aad_object_id)
@@ -276,17 +258,33 @@ class TaskService:
 
         if user is None:
             logger.warning(
-                "No user found for activity feed: aad_object_id=%s email=%s",
+                "No user found for notification feed: aad_object_id=%s email=%s",
                 aad_object_id,
                 email
             )
-            return TaskActivityPage(items=[], total=0, page=page, page_size=page_size)
+            return TaskNotificationPage(items=[], total=0, page=page, page_size=page_size)
 
         skip = (page - 1) * page_size
-        items, total = self.history_repository.list_and_count_for_assignee(
-            user.id, skip=skip, limit=page_size
+        rows, total = self.notification_repository.list_and_count_for_user(
+            user.id, skip=skip, limit=page_size, source=source
         )
-        return TaskActivityPage(items=items, total=total, page=page, page_size=page_size)
+        items = [
+            TaskNotificationResponse(
+                id=notification.id,
+                created_at=notification.created_at,
+                task_id=task.id,
+                task_title=task.title,
+                field_name=history.field_name,
+                old_value=history.old_value,
+                new_value=history.new_value,
+                source=history.source,
+                changed_at=history.changed_at,
+                updated_by=history.updated_by,
+                updated_by_name=updated_by_user.display_name if updated_by_user is not None else None,
+            )
+            for notification, history, task, updated_by_user in rows
+        ]
+        return TaskNotificationPage(items=items, total=total, page=page, page_size=page_size)
 
     @staticmethod
     def _snapshot_field(task: Task, field: str) -> Any:
@@ -306,7 +304,6 @@ class TaskService:
         *,
         source: str = "api",
         actor_oid: Optional[str] = None,
-        actor_name: Optional[str] = None,
         processed_email_id: Optional[uuid.UUID] = None,
     ) -> Task:
         task = self.get_task(task_id)
@@ -320,29 +317,19 @@ class TaskService:
 
         updated = self.repository.update(task, task_data)
 
-        changed_any = False
+        updated_by = self._resolve_updated_by(actor_oid)
         for field in tracked_fields:
             after = self._snapshot_field(updated, field)
             if after != before[field]:
-                changed_any = True
                 self.history_repository.record(
                     task=updated,
                     field_name=field,
                     old_value=before[field],
                     new_value=after,
                     source=source,
-                    changed_by_oid=actor_oid,
-                    changed_by_name=actor_name,
+                    updated_by=updated_by,
                     processed_email_id=processed_email_id,
                 )
-
-        if changed_any:
-            origin_type, origin_id = self._determine_origin(
-                actor_oid=actor_oid, processed_email_id=processed_email_id
-            )
-            self.notification_repository.create_for_assignees(
-                updated, notification_type="updated", origin_type=origin_type, origin_id=origin_id
-            )
         return updated
 
     def delete_task(
@@ -350,7 +337,6 @@ class TaskService:
         task_id: uuid.UUID,
         *,
         actor_oid: Optional[str] = None,
-        actor_name: Optional[str] = None,
     ) -> None:
         task = self.get_task(task_id)
         self.repository.soft_delete(task)
@@ -360,8 +346,7 @@ class TaskService:
             old_value=None,
             new_value=task.deleted_at.isoformat() if task.deleted_at else None,
             source="api",
-            changed_by_oid=actor_oid,
-            changed_by_name=actor_name,
+            updated_by=self._resolve_updated_by(actor_oid),
         )
 
     @staticmethod

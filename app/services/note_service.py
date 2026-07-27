@@ -29,7 +29,7 @@ class NoteService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
     def _resolve_actor_id(self, *, aad_object_id: Optional[str], email: Optional[str]) -> Optional[uuid.UUID]:
-        """Same resolution order as get_activity_for_user / get_current_user: aad_object_id
+        """Same resolution order as get_notifications_for_user / get_current_user: aad_object_id
         first (set once a user has interacted with the Teams bot), email as the SSO fallback."""
         user = None
         if aad_object_id:

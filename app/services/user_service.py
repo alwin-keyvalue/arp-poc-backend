@@ -50,7 +50,7 @@ class UserService:
     def get_current_user(self, *, aad_object_id: Optional[str], email: Optional[str]) -> UserResponse:
         """Resolve the authenticated Teams identity to its internal User row. aad_object_id is
         tried first (set once a user has interacted with the Teams bot); email is the fallback
-        for a user known only via SSO — same resolution order as get_activity_for_user."""
+        for a user known only via SSO — same resolution order as get_notifications_for_user."""
         user = None
         if aad_object_id:
             user = self._users.get_by_aad_object_id(aad_object_id)

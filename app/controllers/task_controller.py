@@ -10,11 +10,12 @@ from app.database import get_db
 from app.repositories.label_repository import LabelRepository
 from app.repositories.note_repository import NoteRepository
 from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
-from app.repositories.task_notification_repository import TaskNotificationRepository
+from app.repositories.task_change_notification_repository import TaskChangeNotificationRepository
 from app.models.task import TaskPriority, TaskStatus
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.label import LabelResponse
+from app.schemas.notification import TaskNotificationPage
 from app.schemas.task import (
     TaskCreate,
     TaskDashboardResponse,
@@ -22,7 +23,6 @@ from app.schemas.task import (
     TaskListResponse,
     TaskResponse,
     TaskUpdate,
-    TaskActivityPage,
     TaskChangeHistoryResponse,
     UserTaskStatsResponse,
 )
@@ -43,7 +43,7 @@ def get_task_service(
         TaskChangeHistoryRepository(db),
         LabelRepository(db),
         NoteRepository(db),
-        TaskNotificationRepository(db),
+        TaskChangeNotificationRepository(db),
     )
 
 
@@ -53,7 +53,7 @@ async def create_task(
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    return await service.create_task(task_data, actor_oid=actor.oid, actor_name=actor.display_label)
+    return await service.create_task(task_data, actor_oid=actor.oid)
 
 
 @router.get("", response_model=TaskListResponse)
@@ -118,16 +118,22 @@ def get_user_stats(service: TaskService = Depends(get_task_service)):
     return service.get_user_stats()
 
 
-@router.get("/activity", response_model=TaskActivityPage)
-def get_my_activity(
+@router.get("/notifications", response_model=TaskNotificationPage)
+def get_my_notifications(
     page: int = Query(1, ge=1),
     page_size: int = Query(5, ge=1, le=50),
+    source: Optional[str] = Query(
+        None, description="Filter by task_change_history.source (e.g. api, email_analysis, teams_bot)"
+    ),
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    print("actor.oid", actor.oid)
-    return service.get_activity_for_user(
-        aad_object_id=actor.oid, email=actor.preferred_username, page=page, page_size=page_size
+    return service.get_notifications_for_user(
+        aad_object_id=actor.oid,
+        email=actor.preferred_username,
+        page=page,
+        page_size=page_size,
+        source=source,
     )
 
 
@@ -153,7 +159,7 @@ def attach_task_label(
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    return service.attach_label(task_id, label_id, actor_oid=actor.oid, actor_name=actor.display_label)
+    return service.attach_label(task_id, label_id, actor_oid=actor.oid)
 
 
 @router.delete("/{task_id}/labels/{label_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -163,7 +169,7 @@ def detach_task_label(
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    service.detach_label(task_id, label_id, actor_oid=actor.oid, actor_name=actor.display_label)
+    service.detach_label(task_id, label_id, actor_oid=actor.oid)
 
 
 @router.put("/{task_id}", response_model=TaskResponse)
@@ -173,7 +179,7 @@ def update_task(
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    return service.update_task(task_id, task_data, actor_oid=actor.oid, actor_name=actor.display_label)
+    return service.update_task(task_id, task_data, actor_oid=actor.oid)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -182,4 +188,4 @@ def delete_task(
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    service.delete_task(task_id, actor_oid=actor.oid, actor_name=actor.display_label)
+    service.delete_task(task_id, actor_oid=actor.oid)

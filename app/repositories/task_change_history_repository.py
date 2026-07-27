@@ -1,17 +1,17 @@
 import uuid
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.task import Task
-from app.models.task_assignee import TaskAssignee
 from app.models.task_change_history import TaskChangeHistory
+from app.repositories.task_change_notification_repository import TaskChangeNotificationRepository
 
 
 class TaskChangeHistoryRepository:
     def __init__(self, db: Session):
         self.db = db
+        self.notification_repository = TaskChangeNotificationRepository(db)
 
     def record(
         self,
@@ -21,8 +21,7 @@ class TaskChangeHistoryRepository:
         old_value: Any,
         new_value: Any,
         source: str,
-        changed_by_oid: Optional[str] = None,
-        changed_by_name: Optional[str] = None,
+        updated_by: Optional[uuid.UUID] = None,
         processed_email_id: Optional[uuid.UUID] = None,
     ) -> TaskChangeHistory:
         entry = TaskChangeHistory(
@@ -32,13 +31,15 @@ class TaskChangeHistoryRepository:
             old_value=old_value,
             new_value=new_value,
             source=source,
-            changed_by_oid=changed_by_oid,
-            changed_by_name=changed_by_name,
+            updated_by=updated_by,
             processed_email_id=processed_email_id,
         )
         self.db.add(entry)
         self.db.commit()
         self.db.refresh(entry)
+        # Every history row notifies the task's current assignees, regardless of caller
+        # (API, webhook/email analysis, or Teams bot) — see TaskService/BotService callers.
+        self.notification_repository.create_for_history(entry, task.assignees)
         return entry
 
     def list_for_task(self, task_id: uuid.UUID) -> List[TaskChangeHistory]:
@@ -48,35 +49,3 @@ class TaskChangeHistoryRepository:
             .order_by(TaskChangeHistory.changed_at.asc())
             .all()
         )
-
-    def _for_assignee_query(self, user_id: uuid.UUID):
-        return (
-            self.db.query(TaskChangeHistory)
-            .join(Task, TaskChangeHistory.task_id == Task.id)
-            .join(TaskAssignee, TaskAssignee.task_id == Task.id)
-            .filter(TaskAssignee.user_id == user_id, Task.deleted_at.is_(None))
-        )
-
-    def list_and_count_for_assignee(
-        self, user_id: uuid.UUID, *, skip: int = 0, limit: int = 20
-    ) -> Tuple[List[TaskChangeHistory], int]:
-        base_query = self._for_assignee_query(user_id)
-
-        # Single round trip: fold the total into the same result set via a window function
-        # instead of a separate COUNT(*) query. Only falls back to a real COUNT query for the
-        # edge case of an empty page (skip past the end) — a window function has no row to
-        # carry the total on when the page itself comes back empty.
-        rows = (
-            base_query.with_entities(TaskChangeHistory, func.count().over().label("total_count"))
-            .order_by(TaskChangeHistory.changed_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-        if rows:
-            items = [row[0] for row in rows]
-            total = rows[0][1]
-            return items, total
-
-        total = base_query.with_entities(func.count(func.distinct(TaskChangeHistory.id))).scalar() or 0
-        return [], total

@@ -115,7 +115,7 @@ def require_admin_user(
 ) -> TeamsUser:
     """Gate for admin-only endpoints: resolves the authenticated Teams identity to its internal
     User row (aad_object_id first, email fallback — same order as get_current_user /
-    get_activity_for_user) and requires role == 'admin'."""
+    get_notifications_for_user) and requires role == 'admin'."""
     user_repo = UserRepository(db)
     user = None
     if actor.oid:

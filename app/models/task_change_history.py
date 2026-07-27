@@ -23,8 +23,9 @@ class TaskChangeHistory(Base):
     # are plain strings, labels/assignee_ids are lists, due_date is an ISO date or null).
     old_value = Column(JSONB, nullable=True)
     new_value = Column(JSONB, nullable=True)
-    changed_by_oid = Column(String(255), nullable=True)
-    changed_by_name = Column(String(255), nullable=True)
+    updated_by = Column(
+        Uuid(as_uuid=True), ForeignKey("users.id", name="fk_task_change_history_updated_by"), nullable=True
+    )
     source = Column(String(50), nullable=False)
     # Set only when source == "email_analysis" — the inbound email whose analysis produced
     # this change. Changes made through direct API calls (source == "api") leave this null.

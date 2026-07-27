@@ -98,14 +98,6 @@ class TaskChangeHistoryResponse(BaseModel):
     old_value: Optional[Any] = None
     new_value: Optional[Any] = None
     source: str
-    changed_by_oid: Optional[str] = None
-    changed_by_name: Optional[str] = None
+    updated_by: Optional[uuid.UUID] = None
     processed_email_id: Optional[uuid.UUID] = None
     changed_at: datetime
-
-
-class TaskActivityPage(BaseModel):
-    items: List[TaskChangeHistoryResponse]
-    total: int
-    page: int
-    page_size: int
