@@ -102,8 +102,11 @@ def list_tasks(
 
 
 @router.get("/dashboard", response_model=TaskDashboardResponse)
-def get_dashboard(service: TaskService = Depends(get_task_service)):
-    return service.get_dashboard()
+def get_dashboard(
+    service: TaskService = Depends(get_task_service),
+    actor: TeamsUser = Depends(get_current_teams_user),
+):
+    return service.get_dashboard(aad_object_id=actor.oid, email=actor.preferred_username)
 
 
 @router.get(

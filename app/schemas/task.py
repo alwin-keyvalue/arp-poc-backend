@@ -69,7 +69,7 @@ class TaskListResponse(BaseModel):
 
 
 class TaskDashboardResponse(BaseModel):
-    open_tasks: int
+    my_open_tasks: int
     total: int
     overdue: int
     due_today: int

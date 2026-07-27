@@ -172,8 +172,22 @@ class TaskService:
             filter_operator=filter_operator,
         )
 
-    def get_dashboard(self) -> TaskDashboardResponse:
-        return self.repository.get_dashboard_stats()
+    def get_dashboard(self, *, aad_object_id: Optional[str], email: Optional[str]) -> TaskDashboardResponse:
+        """open_tasks is scoped to the current user's own open tasks; every other field stays
+        a global aggregate. Same identity resolution order as get_activity_for_user."""
+        user = None
+        if aad_object_id:
+            user = self.user_repository.get_by_aad_object_id(aad_object_id)
+        if user is None and email:
+            user = self.user_repository.get_by_email(email)
+
+        if user is None:
+            logger.warning(
+                "No user found for dashboard open_tasks scoping: aad_object_id=%s email=%s",
+                aad_object_id,
+                email,
+            )
+        return self.repository.get_dashboard_stats(user_id=user.id if user is not None else None)
 
     def get_user_stats(self) -> List[UserTaskStatsResponse]:
         return self.repository.get_stats_by_user()

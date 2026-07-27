@@ -275,7 +275,9 @@ class TaskRepository:
             for row in rows
         ]
 
-    def get_dashboard_stats(self, *, today: Optional[date] = None) -> TaskDashboardResponse:
+    def get_dashboard_stats(
+        self, *, user_id: Optional[uuid.UUID] = None, today: Optional[date] = None
+    ) -> TaskDashboardResponse:
         today = today or date.today()
         week_end = today + timedelta(days=7)
         is_open = Task.status.notin_(_CLOSED_STATUSES)
@@ -283,7 +285,6 @@ class TaskRepository:
         row = (
             self.db.query(
                 func.count(Task.id).label("total"),
-                func.coalesce(func.sum(case((is_open, 1), else_=0)), 0).label("open_tasks"),
                 func.coalesce(
                     func.sum(
                         case(
@@ -327,10 +328,22 @@ class TaskRepository:
             .one()
         )
 
+        # Kept as a separate query rather than joined into the row above: joining through
+        # TaskAssignee there would fan out every other aggregate (total, overdue, ...) by
+        # assignee count instead of scoping just this one field.
+        open_tasks_for_user = 0
+        if user_id is not None:
+            open_tasks_for_user = (
+                self.db.query(func.count(Task.id))
+                .join(TaskAssignee, TaskAssignee.task_id == Task.id)
+                .filter(Task.deleted_at.is_(None), TaskAssignee.user_id == user_id, is_open)
+                .scalar()
+            ) or 0
+
         total = int(row.total or 0)
         done = int(row.done or 0)
         return TaskDashboardResponse(
-            open_tasks=int(row.open_tasks or 0),
+            my_open_tasks=int(open_tasks_for_user),
             total=total,
             overdue=int(row.overdue or 0),
             due_today=int(row.due_today or 0),
