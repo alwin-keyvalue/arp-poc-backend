@@ -2,7 +2,7 @@ import uuid
 from typing import List, Optional, Sequence, Tuple
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session
 
 from app.models.task import Task
 from app.models.task_change_history import TaskChangeHistory
@@ -10,9 +10,9 @@ from app.models.task_change_notification import TaskChangeNotification
 from app.models.user import User
 
 # The row shape returned by list_and_count_for_user: the notification itself, its history
-# entry, the task it belongs to, and the user who made the change (None for email/webhook
-# -triggered changes, which have no acting user).
-NotificationRow = Tuple[TaskChangeNotification, TaskChangeHistory, Task, Optional[User]]
+# entry, the task the history row belongs to, and the notified user (== the user_id filtered
+# on, joined rather than reused so this stays a self-contained query result).
+NotificationRow = Tuple[TaskChangeNotification, TaskChangeHistory, Task, User]
 
 
 class TaskChangeNotificationRepository:
@@ -35,12 +35,11 @@ class TaskChangeNotificationRepository:
         return entries
 
     def _for_user_query(self, user_id: uuid.UUID, *, source: Optional[str] = None):
-        updated_by_user = aliased(User)
         query = (
-            self.db.query(TaskChangeNotification, TaskChangeHistory, Task, updated_by_user)
+            self.db.query(TaskChangeNotification, TaskChangeHistory, Task, User)
             .join(TaskChangeHistory, TaskChangeNotification.task_change_history_id == TaskChangeHistory.id)
             .join(Task, TaskChangeHistory.task_id == Task.id)
-            .outerjoin(updated_by_user, TaskChangeHistory.updated_by == updated_by_user.id)
+            .join(User, TaskChangeNotification.user_id == User.id)
             .filter(TaskChangeNotification.user_id == user_id)
         )
         if source is not None:

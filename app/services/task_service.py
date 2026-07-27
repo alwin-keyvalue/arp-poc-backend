@@ -21,7 +21,11 @@ from app.schemas.email_analysis import (
     TaskUpdatePayload,
 )
 from app.schemas.note import NoteResponse
-from app.schemas.notification import TaskNotificationPage, TaskNotificationResponse
+from app.schemas.notification import (
+    TaskChangeHistoryDetail,
+    TaskNotificationPage,
+    TaskNotificationResponse,
+)
 from app.schemas.parsed_email import ParsedEmailInput
 from app.schemas.task import (
     TaskCreate,
@@ -31,6 +35,7 @@ from app.schemas.task import (
     TaskUpdate,
     UserTaskStatsResponse,
 )
+from app.schemas.user import UserResponse
 from app.services.bot_service import BotService
 
 logger = logging.getLogger(__name__)
@@ -272,17 +277,20 @@ class TaskService:
             TaskNotificationResponse(
                 id=notification.id,
                 created_at=notification.created_at,
-                task_id=task.id,
-                task_title=task.title,
-                field_name=history.field_name,
-                old_value=history.old_value,
-                new_value=history.new_value,
-                source=history.source,
-                changed_at=history.changed_at,
-                updated_by=history.updated_by,
-                updated_by_name=updated_by_user.display_name if updated_by_user is not None else None,
+                user=UserResponse.model_validate(notified_user),
+                task_change_history=TaskChangeHistoryDetail(
+                    id=history.id,
+                    field_name=history.field_name,
+                    old_value=history.old_value,
+                    new_value=history.new_value,
+                    source=history.source,
+                    updated_by=history.updated_by,
+                    processed_email_id=history.processed_email_id,
+                    changed_at=history.changed_at,
+                    task=TaskResponse.model_validate(task),
+                ),
             )
-            for notification, history, task, updated_by_user in rows
+            for notification, history, task, notified_user in rows
         ]
         return TaskNotificationPage(items=items, total=total, page=page, page_size=page_size)
 

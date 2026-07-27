@@ -4,19 +4,27 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
+from app.schemas.task import TaskResponse
+from app.schemas.user import UserResponse
 
-class TaskNotificationResponse(BaseModel):
+
+class TaskChangeHistoryDetail(BaseModel):
     id: uuid.UUID
-    created_at: datetime
-    task_id: uuid.UUID
-    task_title: str
     field_name: str
     old_value: Optional[Any] = None
     new_value: Optional[Any] = None
     source: str
-    changed_at: datetime
     updated_by: Optional[uuid.UUID] = None
-    updated_by_name: Optional[str] = None
+    processed_email_id: Optional[uuid.UUID] = None
+    changed_at: datetime
+    task: TaskResponse
+
+
+class TaskNotificationResponse(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    user: UserResponse
+    task_change_history: TaskChangeHistoryDetail
 
 
 class TaskNotificationPage(BaseModel):
