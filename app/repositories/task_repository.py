@@ -88,14 +88,14 @@ class TaskRepository:
         limit: int = 100,
         *,
         search: Optional[str] = None,
-        assignee_id: Optional[uuid.UUID] = None,
+        assignee_ids: Optional[List[uuid.UUID]] = None,
         priority: Optional[str] = None,
         status: Optional[str] = None,
         created_on: Optional[date] = None,
         due_on: Optional[date] = None,
         due_from: Optional[date] = None,
         due_to: Optional[date] = None,
-        label: Optional[str] = None,
+        labels: Optional[List[str]] = None,
         scope: Optional[str] = None,
         deleted_only: bool = False,
         filter_operator: str = "and",
@@ -112,8 +112,9 @@ class TaskRepository:
             pattern = f"%{term}%"
             conditions.append(or_(Task.title.ilike(pattern), Task.description.ilike(pattern)))
 
-        if assignee_id is not None:
-            conditions.append(Task.assignees.any(User.id == assignee_id))
+        resolved_assignee_ids = [*(assignee_ids or [])]
+        if resolved_assignee_ids:
+            conditions.append(Task.assignees.any(User.id.in_(resolved_assignee_ids)))
 
         if priority is not None:
             conditions.append(Task.priority == priority)
@@ -135,8 +136,9 @@ class TaskRepository:
         if due_range:
             conditions.append(and_(Task.due_date.isnot(None), *due_range))
 
-        if label and (tag := label.strip()):
-            conditions.append(Task.labels.any(Label.name == tag))
+        resolved_labels = [tag.strip() for tag in (labels or []) if tag and tag.strip()]
+        if resolved_labels:
+            conditions.append(Task.labels.any(Label.name.in_(resolved_labels)))
 
         if scope is not None:
             scope_condition = self._scope_condition(scope)

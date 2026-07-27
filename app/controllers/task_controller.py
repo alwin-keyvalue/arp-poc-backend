@@ -61,14 +61,18 @@ def list_tasks(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None, description="Case-insensitive match on title, description, or summary"),
-    assignee_id: Optional[uuid.UUID] = Query(None, description="Only tasks assigned to this user"),
+    assignee_ids: Optional[List[uuid.UUID]] = Query(
+        None, description="Only tasks assigned to any of these users (OR within this filter)"
+    ),
     priority: Optional[TaskPriority] = Query(None, description="Filter by priority (P0, P1, P2)"),
     status: Optional[TaskStatus] = Query(None, description="Filter by status (to_do, done, dropped)"),
     created_on: Optional[date] = Query(None, description="Only tasks created on this date (YYYY-MM-DD)"),
     due_on: Optional[date] = Query(None, description="Only tasks due on this date (YYYY-MM-DD)"),
     due_from: Optional[date] = Query(None, description="Only tasks due on or after this date (YYYY-MM-DD)"),
     due_to: Optional[date] = Query(None, description="Only tasks due on or before this date (YYYY-MM-DD)"),
-    label: Optional[str] = Query(None, description="Only tasks that include this label"),
+    labels: Optional[List[str]] = Query(
+        None, description="Only tasks that include any of these labels (OR within this filter)"
+    ),
     scope: Optional[str] = Query(
         None,
         description="Dashboard bucket filter: open | overdue | due_this_week | completed",
@@ -86,14 +90,14 @@ def list_tasks(
         skip=skip,
         limit=limit,
         search=search,
-        assignee_id=assignee_id,
+        assignee_ids=assignee_ids,
         priority=priority.value if priority is not None else None,
         status=status.value if status is not None else None,
         created_on=created_on,
         due_on=due_on,
         due_from=due_from,
         due_to=due_to,
-        label=label,
+        labels=labels,
         scope=scope,
         deleted_only=deleted_only,
         filter_operator=filter_operator,
