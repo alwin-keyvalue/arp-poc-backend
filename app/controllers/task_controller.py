@@ -40,7 +40,7 @@ def get_task_service(
         TaskRepository(db),
         UserRepository(db),
         bot_service,
-        TaskChangeHistoryRepository(db),
+        TaskChangeHistoryRepository(db, bot_service),
         LabelRepository(db),
         NoteRepository(db),
         TaskChangeNotificationRepository(db),
@@ -161,48 +161,48 @@ def list_task_labels(task_id: uuid.UUID, service: TaskService = Depends(get_task
 
 
 @router.post("/{task_id}/labels/{label_id}", response_model=LabelResponse, status_code=status.HTTP_201_CREATED)
-def attach_task_label(
+async def attach_task_label(
     task_id: uuid.UUID,
     label_id: uuid.UUID,
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    return service.attach_label(task_id, label_id, actor_oid=actor.oid)
+    return await service.attach_label(task_id, label_id, actor_oid=actor.oid)
 
 
 @router.delete("/{task_id}/labels/{label_id}", status_code=status.HTTP_204_NO_CONTENT)
-def detach_task_label(
+async def detach_task_label(
     task_id: uuid.UUID,
     label_id: uuid.UUID,
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    service.detach_label(task_id, label_id, actor_oid=actor.oid)
+    await service.detach_label(task_id, label_id, actor_oid=actor.oid)
 
 
 @router.put("/{task_id}", response_model=TaskResponse)
-def update_task(
+async def update_task(
     task_id: uuid.UUID,
     task_data: TaskUpdate,
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    return service.update_task(task_id, task_data, actor_oid=actor.oid)
+    return await service.update_task(task_id, task_data, actor_oid=actor.oid)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_task(
+async def delete_task(
     task_id: uuid.UUID,
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    service.delete_task(task_id, actor_oid=actor.oid)
+    await service.delete_task(task_id, actor_oid=actor.oid)
 
 
 @router.post("/{task_id}/restore", response_model=TaskResponse)
-def restore_task(
+async def restore_task(
     task_id: uuid.UUID,
     service: TaskService = Depends(get_task_service),
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
-    return service.restore_task(task_id, actor_oid=actor.oid)
+    return await service.restore_task(task_id, actor_oid=actor.oid)

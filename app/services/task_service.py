@@ -103,7 +103,7 @@ class TaskService:
     ) -> Task:
         self._validate_assignees(task_data.assignee_ids)
         task = self.repository.create(task_data)
-        self.history_repository.record(
+        await self.history_repository.record(
             task=task,
             field_name="status",
             old_value=None,
@@ -112,8 +112,6 @@ class TaskService:
             updated_by=self._resolve_updated_by(actor_oid),
             processed_email_id=processed_email_id,
         )
-        for assignee in task.assignees:
-            await self.bot_service.notify_task_assigned(assignee, task)
         return task
 
     def get_task(self, task_id: uuid.UUID, *, include_deleted: bool = False) -> Task:
@@ -197,7 +195,7 @@ class TaskService:
     def _label_names(task: Task) -> List[str]:
         return sorted(label.name for label in task.labels)
 
-    def attach_label(
+    async def attach_label(
         self,
         task_id: uuid.UUID,
         label_id: uuid.UUID,
@@ -212,7 +210,7 @@ class TaskService:
         self.repository.attach_label(task, label)
         after = self._label_names(task)
         if after != before:
-            self.history_repository.record(
+            await self.history_repository.record(
                 task=task,
                 field_name="labels",
                 old_value=before,
@@ -222,7 +220,7 @@ class TaskService:
             )
         return label
 
-    def detach_label(
+    async def detach_label(
         self,
         task_id: uuid.UUID,
         label_id: uuid.UUID,
@@ -237,7 +235,7 @@ class TaskService:
         self.repository.detach_label(task, label)
         after = self._label_names(task)
         if after != before:
-            self.history_repository.record(
+            await self.history_repository.record(
                 task=task,
                 field_name="labels",
                 old_value=before,
@@ -309,7 +307,7 @@ class TaskService:
             return sorted(str(user.id) for user in task.assignees)
         return getattr(task, field)
 
-    def update_task(
+    async def update_task(
         self,
         task_id: uuid.UUID,
         task_data: TaskUpdate,
@@ -333,7 +331,7 @@ class TaskService:
         for field in tracked_fields:
             after = self._snapshot_field(updated, field)
             if after != before[field]:
-                self.history_repository.record(
+                await self.history_repository.record(
                     task=updated,
                     field_name=field,
                     old_value=before[field],
@@ -344,7 +342,7 @@ class TaskService:
                 )
         return updated
 
-    def delete_task(
+    async def delete_task(
         self,
         task_id: uuid.UUID,
         *,
@@ -353,7 +351,7 @@ class TaskService:
         task = self.get_task(task_id)
         updated_by = self._resolve_updated_by(actor_oid)
         self.repository.soft_delete(task, deleted_by=updated_by)
-        self.history_repository.record(
+        await self.history_repository.record(
             task=task,
             field_name="deleted_at",
             old_value=None,
@@ -362,7 +360,7 @@ class TaskService:
             updated_by=updated_by,
         )
 
-    def restore_task(
+    async def restore_task(
         self,
         task_id: uuid.UUID,
         *,
@@ -376,7 +374,7 @@ class TaskService:
 
         previous_deleted_at = task.deleted_at.isoformat()
         self.repository.restore(task)
-        self.history_repository.record(
+        await self.history_repository.record(
             task=task,
             field_name="deleted_at",
             old_value=previous_deleted_at,
@@ -477,7 +475,7 @@ class TaskService:
                 task,
                 conversation_ids=seed_conversation_ids,
             )
-            return self.update_task(
+            return await self.update_task(
                 task.id,
                 TaskUpdate(**update_data),
                 source="email_analysis",

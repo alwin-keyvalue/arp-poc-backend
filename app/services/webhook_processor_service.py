@@ -87,7 +87,7 @@ class WebhookProcessorService:
                 task_repository,
                 user_repository,
                 get_bot_service(),
-                TaskChangeHistoryRepository(db),
+                TaskChangeHistoryRepository(db, get_bot_service()),
                 LabelRepository(db),
                 NoteRepository(db),
                 TaskChangeNotificationRepository(db),

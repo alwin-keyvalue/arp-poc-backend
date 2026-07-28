@@ -45,12 +45,12 @@ def _build_teams_entity_deep_link(app_id: str, entity_id: str, task_id: Any, web
     return f"https://teams.microsoft.com/l/entity/{app_id}/{entity_id}?{query}"
 
 
-def _build_task_assigned_card(task: Task) -> Dict[str, Any]:
-    logger.info("Building Teams task-assigned card for task: %s", task.id)
+def _build_task_notification_card(task: Task, heading: str) -> Dict[str, Any]:
+    logger.info("Building Teams task notification card (%s) for task: %s", heading, task.id)
     body = [
         {
             "type": "TextBlock",
-            "text": "📌 New task assigned",
+            "text": heading,
             "weight": "Bolder",
             "size": "Medium",
         },
@@ -169,7 +169,7 @@ class BotService:
         if task.status != previous_status:
             actor_oid = activity.from_property.aad_object_id if activity.from_property else None
             actor = UserRepository(db).get_by_aad_object_id(actor_oid) if actor_oid else None
-            TaskChangeHistoryRepository(db).record(
+            await TaskChangeHistoryRepository(db, self).record(
                 task=task,
                 field_name="status",
                 old_value=previous_status,
@@ -219,7 +219,9 @@ class BotService:
         if activity.type == "conversationUpdate" and self._bot_was_added(activity):
             await self._handle_bot_installed(activity, turn_context, db)
 
-    async def notify_task_assigned(self, user: User, task: Task) -> None:
+    async def notify_task_assigned(
+        self, user: User, task: Task, *, heading: str = "📌 New task assigned"
+    ) -> None:
         if not user.teams_conversation_reference:
             logger.info("Skipping Teams notification for %s: no stored conversation reference", user.email)
             return
@@ -228,7 +230,7 @@ class BotService:
             return
 
         reference = ConversationReference().deserialize(user.teams_conversation_reference)
-        card = CardFactory.adaptive_card(_build_task_assigned_card(task))
+        card = CardFactory.adaptive_card(_build_task_notification_card(task, heading))
         message = MessageFactory.attachment(card)
 
         async def callback(turn_context: TurnContext) -> None:
