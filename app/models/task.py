@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Column, Date, DateTime, String, Text, Uuid
+from sqlalchemy import Column, Date, DateTime, ForeignKey, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -47,6 +47,8 @@ class Task(Base):
     # NULL = not deleted; a timestamp = soft-deleted at that time. Replaces the old plain
     # is_deleted boolean so soft-deletes also record *when*, not just whether.
     deleted_at = Column(DateTime, nullable=True)
+    # Who soft-deleted the task; cleared back to NULL on restore, same as deleted_at.
+    deleted_by = Column(Uuid(as_uuid=True), ForeignKey("users.id", name="fk_tasks_deleted_by"), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     last_update = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

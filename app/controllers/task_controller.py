@@ -142,8 +142,12 @@ def get_my_notifications(
 
 
 @router.get("/{task_id}", response_model=TaskDetailResponse)
-def get_task(task_id: uuid.UUID, service: TaskService = Depends(get_task_service)):
-    return service.get_task_with_notes(task_id)
+def get_task(
+    task_id: uuid.UUID,
+    include_deleted: bool = Query(False, description="If true, a soft-deleted task can still be returned"),
+    service: TaskService = Depends(get_task_service),
+):
+    return service.get_task_with_notes(task_id, include_deleted=include_deleted)
 
 
 @router.get("/{task_id}/history", response_model=List[TaskChangeHistoryResponse])
@@ -193,3 +197,12 @@ def delete_task(
     actor: TeamsUser = Depends(get_current_teams_user),
 ):
     service.delete_task(task_id, actor_oid=actor.oid)
+
+
+@router.post("/{task_id}/restore", response_model=TaskResponse)
+def restore_task(
+    task_id: uuid.UUID,
+    service: TaskService = Depends(get_task_service),
+    actor: TeamsUser = Depends(get_current_teams_user),
+):
+    return service.restore_task(task_id, actor_oid=actor.oid)

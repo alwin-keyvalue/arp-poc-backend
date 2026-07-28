@@ -116,14 +116,14 @@ class TaskService:
             await self.bot_service.notify_task_assigned(assignee, task)
         return task
 
-    def get_task(self, task_id: uuid.UUID) -> Task:
-        task = self.repository.get_by_id(task_id)
+    def get_task(self, task_id: uuid.UUID, *, include_deleted: bool = False) -> Task:
+        task = self.repository.get_by_id(task_id, include_deleted=include_deleted)
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
         return task
 
-    def get_task_with_notes(self, task_id: uuid.UUID) -> TaskDetailResponse:
-        task = self.get_task(task_id)
+    def get_task_with_notes(self, task_id: uuid.UUID, *, include_deleted: bool = False) -> TaskDetailResponse:
+        task = self.get_task(task_id, include_deleted=include_deleted)
         notes = self.note_repository.list_for_task(task_id)
         return TaskDetailResponse(
             **TaskResponse.model_validate(task).model_dump(),
@@ -351,15 +351,40 @@ class TaskService:
         actor_oid: Optional[str] = None,
     ) -> None:
         task = self.get_task(task_id)
-        self.repository.soft_delete(task)
+        updated_by = self._resolve_updated_by(actor_oid)
+        self.repository.soft_delete(task, deleted_by=updated_by)
         self.history_repository.record(
             task=task,
             field_name="deleted_at",
             old_value=None,
             new_value=task.deleted_at.isoformat() if task.deleted_at else None,
             source="api",
+            updated_by=updated_by,
+        )
+
+    def restore_task(
+        self,
+        task_id: uuid.UUID,
+        *,
+        actor_oid: Optional[str] = None,
+    ) -> Task:
+        task = self.repository.get_by_id(task_id, include_deleted=True)
+        if task is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        if task.deleted_at is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task is not deleted")
+
+        previous_deleted_at = task.deleted_at.isoformat()
+        self.repository.restore(task)
+        self.history_repository.record(
+            task=task,
+            field_name="deleted_at",
+            old_value=previous_deleted_at,
+            new_value=None,
+            source="api",
             updated_by=self._resolve_updated_by(actor_oid),
         )
+        return task
 
     @staticmethod
     def _dedupe(values: Sequence[str]) -> List[str]:

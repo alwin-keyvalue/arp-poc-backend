@@ -194,10 +194,18 @@ class TaskRepository:
         self.db.refresh(task)
         return task
 
-    def soft_delete(self, task: Task) -> None:
+    def soft_delete(self, task: Task, *, deleted_by: Optional[uuid.UUID] = None) -> None:
         task.deleted_at = func.now()
+        task.deleted_by = deleted_by
         self.db.commit()
         self.db.refresh(task)
+
+    def restore(self, task: Task) -> Task:
+        task.deleted_at = None
+        task.deleted_by = None
+        self.db.commit()
+        self.db.refresh(task)
+        return task
 
     def get_created_between(self, from_date: date, to_date: date) -> List[Task]:
         return (
