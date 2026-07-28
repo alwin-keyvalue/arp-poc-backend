@@ -55,6 +55,8 @@ class TaskResponse(TaskBase):
     labels: List[LabelResponse] = []
     created_at: datetime
     last_update: datetime
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[uuid.UUID] = None
 
 
 class TaskDetailResponse(TaskResponse):
