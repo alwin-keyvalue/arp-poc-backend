@@ -6,6 +6,7 @@ from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.label import Label
+from app.models.processed_email import ProcessedEmail
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.task_assignee import TaskAssignee
 from app.models.user import User
@@ -318,6 +319,16 @@ class TaskRepository:
             )
             for row in rows
         ]
+
+    def count_from_processed_emails(self, user_id: uuid.UUID) -> int:
+        """Tasks created off an email this user processed, i.e. tasks whose
+        source_processed_email_id traces back to a processed_emails row owned by user_id."""
+        return (
+            self.db.query(func.count(Task.id))
+            .join(ProcessedEmail, Task.source_processed_email_id == ProcessedEmail.id)
+            .filter(ProcessedEmail.user_id == user_id, Task.deleted_at.is_(None))
+            .scalar()
+        ) or 0
 
     def get_dashboard_stats(
         self, *, user_id: Optional[uuid.UUID] = None, today: Optional[date] = None

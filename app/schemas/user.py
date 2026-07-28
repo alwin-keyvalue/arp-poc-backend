@@ -27,3 +27,10 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class UserEmailStatsResponse(BaseModel):
+    processed_emails_count: int
+    tasks_created: int
+    last_processed_at: datetime | None
+    graph_subscription_id: str | None

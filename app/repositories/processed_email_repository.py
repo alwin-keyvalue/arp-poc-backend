@@ -1,5 +1,8 @@
 import uuid
+from datetime import datetime
+from typing import Optional, Tuple
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -9,6 +12,15 @@ from app.models.processed_email import ProcessedEmail
 class ProcessedEmailRepository:
     def __init__(self, db: Session):
         self.db = db
+
+    def get_stats_by_user(self, user_id: uuid.UUID) -> Tuple[int, Optional[datetime]]:
+        """Returns (total processed, timestamp of the most recently processed email)."""
+        total, last_processed_at = (
+            self.db.query(func.count(ProcessedEmail.id), func.max(ProcessedEmail.processed_at))
+            .filter(ProcessedEmail.user_id == user_id)
+            .one()
+        )
+        return int(total or 0), last_processed_at
 
     def is_processed(self, internet_message_id: str) -> bool:
         return (

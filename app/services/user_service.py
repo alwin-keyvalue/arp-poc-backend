@@ -4,17 +4,27 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.repositories.processed_email_repository import ProcessedEmailRepository
+from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.user import UserCreate, UserEmailStatsResponse, UserResponse, UserUpdate
 from app.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
 
 
 class UserService:
-    def __init__(self, repository: UserRepository, subscription_service: SubscriptionService):
+    def __init__(
+        self,
+        repository: UserRepository,
+        subscription_service: SubscriptionService,
+        processed_email_repository: ProcessedEmailRepository,
+        task_repository: TaskRepository,
+    ):
         self._users = repository
         self._subscriptions = subscription_service
+        self._processed_emails = processed_email_repository
+        self._tasks = task_repository
 
     def create_user(self, data: UserCreate) -> UserResponse:
         existing = self._users.get_by_email(data.email, include_deleted=True)
@@ -59,6 +69,25 @@ class UserService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
         return UserResponse.model_validate(user)
+
+    def get_email_stats(self, *, aad_object_id: Optional[str], email: Optional[str]) -> UserEmailStatsResponse:
+        """Same identity resolution order as get_current_user: aad_object_id first, email
+        fallback."""
+        user = None
+        if aad_object_id:
+            user = self._users.get_by_aad_object_id(aad_object_id)
+        if user is None and email:
+            user = self._users.get_by_email(email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        processed_count, last_processed_at = self._processed_emails.get_stats_by_user(user.id)
+        return UserEmailStatsResponse(
+            processed_emails_count=processed_count,
+            tasks_created=self._tasks.count_from_processed_emails(user.id),
+            last_processed_at=last_processed_at,
+            graph_subscription_id=self._subscriptions.get_subscription_id_for_user(user.id),
+        )
 
     def update_user(self, user_id: uuid.UUID, data: UserUpdate) -> UserResponse:
         user = self._users.get_by_id(user_id)

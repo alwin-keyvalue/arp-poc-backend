@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
@@ -42,6 +43,13 @@ class SubscriptionService:
 
     def list_subscriptions(self) -> list[SubscribedUserResponse]:
         return [self._to_response(record) for record in self._subscriptions.get_all()]
+
+    def get_subscription_id_for_user(self, user_id: uuid.UUID) -> str | None:
+        """A user can have one graph_subscriptions row per watched mail folder (see
+        WATCHED_MAIL_FOLDERS); callers that just want "a" subscription id to display take the
+        first, same as mailbox_sync_service does when it only needs the graph_user_id."""
+        records = self._subscriptions.get_all_by_user_id(user_id)
+        return records[0].id if records else None
 
     async def subscribe_user(self, email: str) -> list[SubscribedUserResponse]:
         user = self._users.get_by_email(email)

@@ -12,8 +12,10 @@ from app.core.internal_auth import (
 from app.core.teams_auth import TeamsUser, get_current_teams_user
 from app.database import get_db
 from app.dependencies import get_http_client
+from app.repositories.processed_email_repository import ProcessedEmailRepository
+from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.user import UserCreate, UserEmailStatsResponse, UserResponse, UserUpdate
 from app.services.subscription_service import build_subscription_service
 from app.services.user_service import UserService
 
@@ -24,7 +26,12 @@ def get_user_service(
     db: Session = Depends(get_db),
     http_client: httpx.AsyncClient = Depends(get_http_client),
 ) -> UserService:
-    return UserService(UserRepository(db), build_subscription_service(db, http_client))
+    return UserService(
+        UserRepository(db),
+        build_subscription_service(db, http_client),
+        ProcessedEmailRepository(db),
+        TaskRepository(db),
+    )
 
 
 @router.post(
@@ -56,6 +63,14 @@ def get_current_user(
     service: UserService = Depends(get_user_service),
 ):
     return service.get_current_user(aad_object_id=actor.oid, email=actor.preferred_username)
+
+
+@router.get("/me/email-stats", response_model=UserEmailStatsResponse)
+def get_current_user_email_stats(
+    actor: TeamsUser = Depends(get_current_teams_user),
+    service: UserService = Depends(get_user_service),
+):
+    return service.get_email_stats(aad_object_id=actor.oid, email=actor.preferred_username)
 
 
 @router.get(
