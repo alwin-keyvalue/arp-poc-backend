@@ -14,13 +14,12 @@ class TaskBase(BaseModel):
     description: Optional[str] = None
     summary: Optional[str] = None
     note: Optional[str] = None
-    source_email_id: Optional[str] = None
+    source_processed_email_id: Optional[uuid.UUID] = None
     conversation_ids: List[str] = []
     internet_message_ids: List[str] = []
     # How this task came to exist ("webhook", "scheduled_sync", or None for directly-created
     # tasks) — a fact about its origin, not settable after creation, so this isn't in TaskUpdate.
     created_via: Optional[str] = None
-    source_user: Optional[str] = None
     source_link: Optional[str] = None
     assignee_ids: List[uuid.UUID] = []
     status: TaskStatus = TaskStatus.TO_DO
@@ -37,10 +36,9 @@ class TaskUpdate(BaseModel):
     description: Optional[str] = None
     summary: Optional[str] = None
     note: Optional[str] = None
-    source_email_id: Optional[str] = None
+    source_processed_email_id: Optional[uuid.UUID] = None
     conversation_ids: Optional[List[str]] = None
     internet_message_ids: Optional[List[str]] = None
-    source_user: Optional[str] = None
     source_link: Optional[str] = None
     assignee_ids: Optional[List[uuid.UUID]] = None
     status: Optional[TaskStatus] = None

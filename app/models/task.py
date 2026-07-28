@@ -35,8 +35,9 @@ class Task(Base):
     description = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
     note = Column(Text, nullable=True)
-    source_email_id = Column(String(255), nullable=True)
-    source_user = Column(String(255), nullable=True)
+    source_processed_email_id = Column(
+        Uuid(as_uuid=True), ForeignKey("processed_emails.id", name="fk_tasks_source_processed_email_id"), nullable=True
+    )
     source_link = Column(String(1024), nullable=True)
     # "metadata" is reserved on declarative models (Base.metadata), so the Python attribute
     # is named metadata_ while the actual DB column stays "metadata".

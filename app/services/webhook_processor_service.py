@@ -302,7 +302,6 @@ class WebhookProcessorService:
         task = await task_service.apply_analysis(
             analysis,
             parsed,
-            parsed.from_address,
             created_via=created_via,
             existing_task=existing_task,
             thread_conversation_ids=thread_conversation_ids or None,

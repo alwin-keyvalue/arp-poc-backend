@@ -42,7 +42,7 @@ from app.services.bot_service import BotService
 logger = logging.getLogger(__name__)
 
 # Fields worth an audit-trail row when changed via update_task. Internal/bookkeeping fields
-# (conversation_ids, internet_message_ids, source_email_id, source_user, source_link) are
+# (conversation_ids, internet_message_ids, source_processed_email_id, source_link) are
 # deliberately excluded — they're mutated automatically as a side effect of email threading
 # on nearly every apply_analysis call, which would drown real changes in noise.
 _TRACKED_FIELDS = {
@@ -432,7 +432,6 @@ class TaskService:
         self,
         analysis: AnalyzeResponse,
         metadata: ParsedEmailInput,
-        from_address: Optional[str],
         *,
         created_via: Optional[str] = None,
         existing_task: Optional[Task] = None,
@@ -462,10 +461,9 @@ class TaskService:
             task_data = TaskCreate(
                 **payload_data,
                 assignee_ids=self._resolve_assignee_ids(analysis.payload.assignees),
-                source_email_id=metadata.message_id,
+                source_processed_email_id=processed_email_id,
                 conversation_ids=conversation_ids,
                 created_via=created_via,
-                source_user=from_address,
                 source_link=metadata.web_link,
             )
             return await self.create_task(
