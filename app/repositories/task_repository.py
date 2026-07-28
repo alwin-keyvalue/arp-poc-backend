@@ -207,6 +207,40 @@ class TaskRepository:
         self.db.refresh(task)
         return task
 
+    def get_insights_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        skip: int = 0,
+        limit: int = 20,
+        today: Optional[date] = None,
+    ) -> Tuple[List[Task], int]:
+        """Tasks assigned to user_id that need the user's attention right now: open P0s and
+        anything open due today. Same is_to_do/priority/due_date fields as get_dashboard_stats,
+        just scoped to one assignee and combined with OR instead of aggregated."""
+        today = today or date.today()
+        is_to_do = Task.status == TaskStatus.TO_DO.value
+        insight_condition = or_(
+            and_(is_to_do, Task.priority == TaskPriority.P0.value),
+            and_(is_to_do, Task.due_date == today),
+        )
+
+        query = self.db.query(Task).filter(
+            Task.deleted_at.is_(None),
+            Task.assignees.any(User.id == user_id),
+            insight_condition,
+        )
+
+        total = query.count()
+        items = (
+            query.options(selectinload(Task.assignees), selectinload(Task.labels))
+            .order_by(Task.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+        return items, total
+
     def get_created_between(self, from_date: date, to_date: date) -> List[Task]:
         return (
             self.db.query(Task)

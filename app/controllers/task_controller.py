@@ -113,6 +113,22 @@ def get_dashboard(
     return service.get_dashboard(aad_object_id=actor.oid, email=actor.preferred_username)
 
 
+@router.get("/insights", response_model=TaskListResponse)
+def get_my_insights(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    service: TaskService = Depends(get_task_service),
+    actor: TeamsUser = Depends(get_current_teams_user),
+):
+    items, total = service.get_insights(
+        aad_object_id=actor.oid,
+        email=actor.preferred_username,
+        skip=skip,
+        limit=limit,
+    )
+    return TaskListResponse(items=items, total=total, skip=skip, limit=limit)
+
+
 @router.get(
     "/stats/users",
     response_model=List[UserTaskStatsResponse],
