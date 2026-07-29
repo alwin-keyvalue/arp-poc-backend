@@ -1,11 +1,38 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import settings
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 
-engine = create_engine(settings.database_url, connect_args=connect_args)
+engine = create_engine(
+    settings.database_url,
+    connect_args=connect_args,
+    # Neon (and similar serverless/pooled Postgres) close idle connections server-side;
+    # pre_ping health-checks a pooled connection before handing it out, and recycle
+    # proactively rotates connections before the server has a chance to kill them.
+    pool_pre_ping=True,
+    pool_recycle=300,
+    echo=settings.db_echo,
+)
+
+
+def quote_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+if settings.db_schema and not settings.database_url.startswith("sqlite"):
+    # Set via a regular SQL command rather than the "options=-c search_path=..." startup
+    # parameter, since poolers like Neon's PgBouncer endpoint reject startup parameters.
+    @event.listens_for(engine, "connect")
+    def _set_search_path(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(settings.db_schema)}")
+        cursor.execute(f"SET search_path TO {quote_ident(settings.db_schema)}")
+        dbapi_connection.commit()
+        cursor.close()
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

@@ -1,0 +1,117 @@
+import logging
+import uuid
+from typing import Optional
+
+from fastapi import HTTPException
+
+from app.repositories.processed_email_repository import ProcessedEmailRepository
+from app.repositories.task_repository import TaskRepository
+from app.repositories.user_repository import UserRepository
+from app.schemas.user import UserCreate, UserEmailStatsResponse, UserResponse, UserUpdate
+from app.services.subscription_service import SubscriptionService
+
+logger = logging.getLogger(__name__)
+
+
+class UserService:
+    def __init__(
+        self,
+        repository: UserRepository,
+        subscription_service: SubscriptionService,
+        processed_email_repository: ProcessedEmailRepository,
+        task_repository: TaskRepository,
+    ):
+        self._users = repository
+        self._subscriptions = subscription_service
+        self._processed_emails = processed_email_repository
+        self._tasks = task_repository
+
+    def create_user(self, data: UserCreate) -> UserResponse:
+        existing = self._users.get_by_email(data.email, include_deleted=True)
+        if existing and not existing.is_deleted:
+            raise HTTPException(status_code=409, detail=f"User {data.email} already exists.")
+        if existing and existing.is_deleted:
+            existing.is_deleted = False
+            user = self._users.update(
+                existing,
+                display_name=data.display_name,
+                role=data.role,
+                coverage_topics=data.coverage_topics,
+            )
+            return UserResponse.model_validate(user)
+
+        user = self._users.create(
+            email=data.email,
+            display_name=data.display_name,
+            role=data.role,
+            coverage_topics=data.coverage_topics,
+        )
+        return UserResponse.model_validate(user)
+
+    def list_users(self, skip: int = 0, limit: int = 100) -> list[UserResponse]:
+        return [UserResponse.model_validate(user) for user in self._users.get_all(skip=skip, limit=limit)]
+
+    def get_user(self, user_id: uuid.UUID) -> UserResponse:
+        user = self._users.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+        return UserResponse.model_validate(user)
+
+    def get_current_user(self, *, aad_object_id: Optional[str], email: Optional[str]) -> UserResponse:
+        """Resolve the authenticated Teams identity to its internal User row. aad_object_id is
+        tried first (set once a user has interacted with the Teams bot); email is the fallback
+        for a user known only via SSO — same resolution order as get_notifications_for_user."""
+        user = None
+        if aad_object_id:
+            user = self._users.get_by_aad_object_id(aad_object_id)
+        if user is None and email:
+            user = self._users.get_by_email(email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+        return UserResponse.model_validate(user)
+
+    def get_email_stats(self, *, aad_object_id: Optional[str], email: Optional[str]) -> UserEmailStatsResponse:
+        """Same identity resolution order as get_current_user: aad_object_id first, email
+        fallback."""
+        user = None
+        if aad_object_id:
+            user = self._users.get_by_aad_object_id(aad_object_id)
+        if user is None and email:
+            user = self._users.get_by_email(email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        processed_count, last_processed_at = self._processed_emails.get_stats_by_user(user.id)
+        return UserEmailStatsResponse(
+            processed_emails_count=processed_count,
+            tasks_created=self._tasks.count_from_processed_emails(user.id),
+            last_processed_at=last_processed_at,
+            graph_subscription_id=self._subscriptions.get_subscription_id_for_user(user.id),
+        )
+
+    def update_user(self, user_id: uuid.UUID, data: UserUpdate) -> UserResponse:
+        user = self._users.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+        updated = self._users.update(
+            user,
+            display_name=data.display_name,
+            role=data.role,
+            coverage_topics=data.coverage_topics,
+        )
+        return UserResponse.model_validate(updated)
+
+    async def delete_user(self, user_id: uuid.UUID) -> None:
+        user = self._users.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+        # Must run before soft_delete: unsubscribe_user_if_subscribed looks the user up by
+        # email filtering out deleted users, so it would find nothing if called after.
+        # Best-effort — a Graph hiccup shouldn't block deleting the user record itself.
+        try:
+            await self._subscriptions.unsubscribe_user_if_subscribed(user.email)
+        except Exception:
+            logger.warning(
+                "Failed to clean up Graph subscription for %s during user deletion", user.email, exc_info=True
+            )
+        self._users.soft_delete(user)

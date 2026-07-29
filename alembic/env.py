@@ -1,18 +1,31 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
+from sqlalchemy import engine_from_config, text
 from sqlalchemy import pool
 
 from alembic import context
 
 from app.config import settings
-from app.database import Base
-from app.models import task  # noqa: F401  (registers models on Base.metadata)
+from app.database import Base, quote_ident
+from app.models import (  # noqa: F401
+    graph_subscription,
+    label,
+    processed_email,
+    task,
+    task_assignee,
+    task_change_history,
+    task_change_notification,
+    task_label,
+    task_note,
+    user,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# configparser treats "%" as interpolation syntax (e.g. "%(name)s"), so a literal "%"
+# in the URL (from URL-encoded query values like "-csearch_path%3Ddev") must be escaped.
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -48,6 +61,9 @@ def run_migrations_offline() -> None:
     )
 
     with context.begin_transaction():
+        if settings.db_schema:
+            context.execute(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(settings.db_schema)}")
+            context.execute(f"SET search_path TO {quote_ident(settings.db_schema)}")
         context.run_migrations()
 
 
@@ -65,6 +81,11 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        if settings.db_schema:
+            connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(settings.db_schema)}"))
+            connection.execute(text(f"SET search_path TO {quote_ident(settings.db_schema)}"))
+            connection.commit()
+
         context.configure(
             connection=connection, target_metadata=target_metadata
         )

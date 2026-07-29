@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 from sqlalchemy.engine import URL
@@ -14,6 +15,10 @@ class Settings:
         self.db_user = os.getenv("DB_USER")
         self.db_password = os.getenv("DB_PASSWORD")
         self.db_sslmode = os.getenv("DB_SSLMODE", "require")
+        self.db_schema = os.getenv("DB_SCHEMA")
+        # Logs every SQL statement + params via the "sqlalchemy.engine" logger. Off by
+        # default — noisy and can leak query parameter values into logs.
+        self.db_echo = os.getenv("DB_ECHO", "false").strip().lower() == "true"
 
         if self.db_host:
             self.database_url = URL.create(
@@ -34,6 +39,83 @@ class Settings:
             for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
             if origin.strip()
         ]
+        self.bot_app_id = os.getenv("AZURE_CLIENT_ID")
+        self.bot_app_tenant_id = os.getenv("AZURE_TENANT_ID")
+
+        self.llm_provider = os.getenv("LLM_PROVIDER", "gemini")
+        self.model = os.getenv("MODEL", "gemini-2.5-flash-lite")
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.litellm_proxy = os.getenv("LITELLM_PROXY")
+        self.llm_timeout = int(os.getenv("TIMEOUT", "60"))
+        self.llm_temperature = float(os.getenv("TEMPERATURE", "0.0"))
+        # Comma-separated. When non-empty, LLM analysis runs only if a listed
+        # address appears on from/to/cc/bcc (mailbox owner alone does not count).
+        self.llm_email_whitelist = {
+            email.strip().lower()
+            for email in os.getenv("LLM_EMAIL_WHITELIST", "").split(",")
+            if email.strip()
+        }
+
+        self.azure_tenant_id = os.getenv("AZURE_TENANT_ID", "")
+        self.azure_client_id = os.getenv("AZURE_CLIENT_ID", "")
+        # Same Azure AD App Registration secret is used both for Graph app-only auth (client
+        # credentials flow) and Bot Framework channel auth ("Microsoft App Password" in Bot
+        # Framework's own terminology) — one env var, not two, so rotating it can't drift
+        # out of sync between the two call sites.
+        self.azure_client_secret = os.getenv("AZURE_CLIENT_SECRET", "")
+        self.webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "")
+        self.webhook_client_state = os.getenv("WEBHOOK_CLIENT_STATE", "")
+        # Rich Outlook subscriptions max ~1440 minutes (~1 day).
+        self.max_subscription_minutes = int(os.getenv("MAX_SUBSCRIPTION_MINUTES", "1440"))
+        # Rich (includeResourceData) webhook certs — required for Outlook subscriptions.
+        # Encrypted resource data is used for participant whitelist only; full body
+        # always comes from Graph GET after whitelist passes.
+        self.graph_notification_certificate_id = os.getenv(
+            "GRAPH_NOTIFICATION_CERTIFICATE_ID", ""
+        ).strip()
+        self.graph_notification_certificate = os.getenv(
+            "GRAPH_NOTIFICATION_CERTIFICATE", ""
+        ).strip()
+        self.graph_notification_private_key = os.getenv(
+            "GRAPH_NOTIFICATION_PRIVATE_KEY", ""
+        ).strip()
+
+        self.web_app_url = os.getenv("WEB_APP_URL", "")
+        self.teams_app_id = os.getenv("TEAMS_APP_ID", "")
+        self.teams_entity_id = os.getenv("TEAMS_ENTITY_ID", "arp-poc")
+
+        self.subscription_excluded_emails = {
+            email.strip().lower()
+            for email in os.getenv("SUBSCRIPTION_EXCLUDED_EMAILS", "").split(",")
+            if email.strip()
+        }
+        # The mailbox Graph sends task reports "as" (application-permission sendMail
+        # requires a specific sending mailbox, not a generic "from" address).
+        self.reports_sender_mailbox = os.getenv("REPORTS_SENDER_MAILBOX", "")
+
+        # Shared secret for the internal endpoints.
+        self.internal_auth_secret = os.getenv("INTERNAL_AUTH_SECRET", "")
+        self.mailbox_sync_lookback_days = int(os.getenv("MAILBOX_SYNC_LOOKBACK_DAYS", "30"))
+
+    @property
+    def bot_app_password(self) -> str:
+        return self.azure_client_secret
+
+    @property
+    def microsoft_graph_webhook_url(self) -> str:
+        base = self.webhook_base_url.rstrip("/")
+        return f"{base}/api/microsoft-graph/webhooks/outlook"
+
+    def task_web_url(self, task_id) -> Optional[str]:
+        # Prefer a Teams deep link (opens inside the installed custom app) over a plain
+        # browser URL. Uses Teams' "/l/app/<appId>" share-link format; unverified whether
+        # Teams forwards the taskId query param through to the app's page — test after deploy.
+        if self.teams_app_id:
+            return f"https://teams.cloud.microsoft/l/app/{self.teams_app_id}?taskId={task_id}"
+        if self.web_app_url:
+            return f"{self.web_app_url.rstrip('/')}/?taskId={task_id}"
+        return None
 
 
 settings = Settings()

@@ -1,0 +1,281 @@
+import json
+import logging
+import uuid
+from typing import Any, Dict, Optional
+from urllib.parse import urlencode
+
+import httpx
+import jwt
+from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings, CardFactory, MessageFactory, TurnContext
+from botbuilder.schema import Activity, ConversationReference
+from fastapi import HTTPException, status
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.integrations.microsoft_graph.client import GraphClient
+from app.models.task import Task, TaskStatus
+from app.models.user import SYSTEM_USER_ID, User
+from app.repositories.task_change_history_repository import TaskChangeHistoryRepository
+from app.repositories.task_repository import TaskRepository
+from app.repositories.user_repository import UserRepository
+from app.schemas.task import TaskUpdate
+from app.services.subscription_service import build_subscription_service
+
+logger = logging.getLogger("app.teams_bot")
+
+GREETING_TEXT = (
+    "👋 Hi! I'm your Task Bot. Forward me an email or flag a message here and "
+    "I'll help turn it into a task."
+)
+
+TASK_ACTION_VERB = "task_action"
+
+
+def _build_teams_entity_deep_link(app_id: str, entity_id: str, task_id: Any, web_app_url: str = "") -> str:
+    # Teams entity deep links only ever forward two things to the app: `context` (delivered
+    # via the Teams SDK as page.subPageId, not the URL) and `webUrl` (the fallback URL, which
+    # *does* become the actual page URL loaded). A bare query param on the teams.microsoft.com
+    # link itself (e.g. "?taskId=...") is not one of those and gets silently dropped by Teams.
+    task_id_str = str(task_id)
+    params: Dict[str, str] = {"context": json.dumps({"subEntityId": task_id_str}, separators=(",", ":"))}
+    if web_app_url:
+        params["webUrl"] = f"{web_app_url.rstrip('/')}/?taskId={task_id_str}"
+    query = urlencode(params)
+    return f"https://teams.microsoft.com/l/entity/{app_id}/{entity_id}?{query}"
+
+
+def _build_task_notification_card(task: Task, heading: str) -> Dict[str, Any]:
+    logger.info("Building Teams task notification card (%s) for task: %s", heading, task.id)
+    body = [
+        {
+            "type": "TextBlock",
+            "text": heading,
+            "weight": "Bolder",
+            "size": "Medium",
+        },
+        {
+            "type": "TextBlock",
+            "text": task.title,
+            "weight": "Bolder",
+            "size": "Large",
+            "wrap": True,
+        },
+    ]
+    if task.description:
+        body.append({"type": "TextBlock", "text": task.description, "wrap": True, "isSubtle": True})
+
+    facts = [{"title": "Priority", "value": task.priority}, {"title": "Status", "value": task.status}]
+    if task.due_date:
+        facts.append({"title": "Due date", "value": task.due_date.isoformat()})
+    body.append({"type": "FactSet", "facts": facts})
+
+    task_url = _build_teams_entity_deep_link(
+        settings.teams_app_id, settings.teams_entity_id, task.id, settings.web_app_url
+    )
+    actions: list = [
+        {
+            "type": "Action.Submit",
+            "title": "✅ Mark as done",
+            "data": {"verb": TASK_ACTION_VERB, "taskAction": "complete", "taskId": str(task.id)},
+        },
+        {"type": "Action.OpenUrl", "title": "🔗 View task", "url": task_url}
+    ]
+
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "https://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.4",
+        "body": body,
+        "actions": actions,
+    }
+
+
+def _build_task_action_result_card(task: Task, confirmation: str) -> Dict[str, Any]:
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "https://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.4",
+        "body": [
+            {"type": "TextBlock", "text": confirmation, "weight": "Bolder", "wrap": True},
+            {"type": "TextBlock", "text": task.title, "wrap": True, "isSubtle": True},
+        ],
+    }
+
+
+class BotService:
+    def __init__(self, adapter: BotFrameworkAdapter):
+        self._adapter = adapter
+
+    @staticmethod
+    def _bot_was_added(activity: Activity) -> bool:
+        recipient_id = activity.recipient.id if activity.recipient else None
+        members_added = activity.members_added or []
+        return any(member.id == recipient_id for member in members_added)
+
+    def _remember_teams_user(self, activity: Activity, email: str, db: Session) -> None:
+        conversation_reference = TurnContext.get_conversation_reference(activity)
+        UserRepository(db).upsert_teams_info(
+            email=email,
+            aad_object_id=activity.from_property.aad_object_id,
+            conversation_reference=conversation_reference.serialize(),
+            display_name=activity.from_property.name if activity.from_property else None,
+        )
+        logger.info("Stored Teams conversation reference for %s", email)
+
+    async def _subscribe_for_inbox_messages(self, email: str, db: Session) -> None:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            await build_subscription_service(db, http_client).subscribe_user(email)
+        logger.info("Subscribed %s for inbox message notifications", email)
+
+    @staticmethod
+    async def _resolve_teams_user_email(aad_object_id: Optional[str]) -> Optional[str]:
+        """Look up a Teams user's email via Graph app-only auth. Returns None on any failure."""
+        if not aad_object_id:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                return await GraphClient(http_client).get_user_email(aad_object_id)
+        except Exception:
+            logger.exception("Failed to fetch user email from Graph for %s", aad_object_id)
+            return None
+
+    async def _handle_task_card_action(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
+        value = activity.value
+        task_action = value.get("taskAction")
+        try:
+            task_id = uuid.UUID(str(value.get("taskId")))
+        except (TypeError, ValueError):
+            logger.warning("Ignoring task card action with invalid taskId: %s", value.get("taskId"))
+            return
+
+        repository = TaskRepository(db)
+        task = repository.get_by_id(task_id)
+        if task is None:
+            await turn_context.send_activity("⚠️ That task no longer exists.")
+            return
+
+        previous_status = task.status
+        if task_action == "complete":
+            task = repository.update(task, TaskUpdate(status=TaskStatus.DONE))
+            confirmation = "✅ Marked as done"
+        elif task_action == "drop":
+            task = repository.update(task, TaskUpdate(status=TaskStatus.DROPPED))
+            confirmation = "🗑️ Task dropped"
+        else:
+            logger.warning("Unknown task card action: %s", task_action)
+            return
+
+        if task.status != previous_status:
+            actor_oid = activity.from_property.aad_object_id if activity.from_property else None
+            actor = UserRepository(db).get_by_aad_object_id(actor_oid) if actor_oid else None
+            await TaskChangeHistoryRepository(db, self).record(
+                task=task,
+                field_name="status",
+                old_value=previous_status,
+                new_value=task.status,
+                source="teams_bot",
+                updated_by=actor.id if actor is not None else SYSTEM_USER_ID,
+            )
+
+        card = CardFactory.adaptive_card(_build_task_action_result_card(task, confirmation))
+        await turn_context.send_activity(MessageFactory.attachment(card))
+
+    async def _handle_bot_installed(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
+        aad_object_id = activity.from_property.aad_object_id if activity.from_property else None
+        email = await self._resolve_teams_user_email(aad_object_id)
+        logger.info("Teams user email: %s (aadObjectId=%s)", email, aad_object_id)
+
+        if email:
+            try:
+                self._remember_teams_user(activity, email, db)
+            except Exception:
+                logger.exception("Failed to persist Teams conversation reference for %s", email)
+            else:
+                if email.lower() in settings.subscription_excluded_emails:
+                    logger.info("Skipping inbox subscription for %s (in SUBSCRIPTION_EXCLUDED_EMAILS)", email)
+                else:
+                    try:
+                        await self._subscribe_for_inbox_messages(email, db)
+                    except Exception:
+                        logger.exception("Failed to subscribe %s for inbox message notifications", email)
+
+        await turn_context.send_activity(GREETING_TEXT)
+
+    async def _turn_logic(self, activity: Activity, turn_context: TurnContext, db: Session) -> None:
+        # activity.serialize() includes message text and sender name/id — sensitive content.
+        # Log only the shape needed to trace routing, never the raw activity.
+        is_card_action = (
+            activity.type == "message"
+            and isinstance(activity.value, dict)
+            and activity.value.get("verb") == TASK_ACTION_VERB
+        )
+        logger.info("Teams activity received: type=%s is_card_action=%s", activity.type, is_card_action)
+
+        if activity.type == "message" and isinstance(activity.value, dict) and activity.value.get("verb") == TASK_ACTION_VERB:
+            await self._handle_task_card_action(activity, turn_context, db)
+            return
+
+        if activity.type == "conversationUpdate" and self._bot_was_added(activity):
+            await self._handle_bot_installed(activity, turn_context, db)
+
+    async def notify_task_assigned(
+        self, user: User, task: Task, *, heading: str = "📌 New task assigned"
+    ) -> None:
+        if not user.teams_conversation_reference:
+            logger.info("Skipping Teams notification for %s: no stored conversation reference", user.email)
+            return
+        if not settings.azure_client_id or not settings.bot_app_password:
+            logger.info("Skipping Teams notification: bot is not configured")
+            return
+
+        reference = ConversationReference().deserialize(user.teams_conversation_reference)
+        card = CardFactory.adaptive_card(_build_task_notification_card(task, heading))
+        message = MessageFactory.attachment(card)
+
+        async def callback(turn_context: TurnContext) -> None:
+            await turn_context.send_activity(message)
+
+        try:
+            await self._adapter.continue_conversation(reference, callback, settings.azure_client_id)
+        except Exception:
+            logger.exception("Failed to send Teams task-assigned notification to %s", user.email)
+
+    async def receive_activity(self, body: Dict[str, Any], auth_header: str, db: Session):
+        if not settings.azure_client_id or not settings.bot_app_password:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="AZURE_CLIENT_ID / BOT_APP_PASSWORD are not configured on the server",
+            )
+
+        activity = Activity().deserialize(body)
+
+        async def turn_logic(turn_context: TurnContext) -> None:
+            await self._turn_logic(activity, turn_context, db)
+
+        try:
+            invoke_response = await self._adapter.process_activity(activity, auth_header, turn_logic)
+        except (PermissionError, jwt.PyJWTError) as exc:
+            logger.warning("Teams bot token rejected: %s", exc)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+        if invoke_response:
+            return JSONResponse(content=invoke_response.body, status_code=invoke_response.status)
+        return {}
+
+
+_bot_service: Optional[BotService] = None
+
+
+def get_bot_service() -> BotService:
+    global _bot_service
+    if _bot_service is None:
+        adapter = BotFrameworkAdapter(
+            BotFrameworkAdapterSettings(
+                settings.bot_app_id or "",
+                settings.bot_app_password or "",
+                channel_auth_tenant=settings.azure_tenant_id,
+            )
+        )
+        _bot_service = BotService(adapter)
+    return _bot_service

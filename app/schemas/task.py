@@ -1,24 +1,29 @@
 import uuid
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
 from app.models.task import TaskPriority, TaskStatus
+from app.schemas.label import LabelResponse
+from app.schemas.note import NoteResponse
 
 
 class TaskBase(BaseModel):
     title: str
+    description: Optional[str] = None
     summary: Optional[str] = None
-    source_email_id: Optional[str] = None
-    conversation_id: Optional[str] = None
-    source_user: Optional[str] = None
+    note: Optional[str] = None
+    source_processed_email_id: Optional[uuid.UUID] = None
+    conversation_ids: List[str] = []
+    internet_message_ids: List[str] = []
+    # How this task came to exist ("webhook", "scheduled_sync", or None for directly-created
+    # tasks) — a fact about its origin, not settable after creation, so this isn't in TaskUpdate.
+    created_via: Optional[str] = None
     source_link: Optional[str] = None
-    assignee: Optional[str] = None
-    watchers: List[str] = []
-    labels: List[str] = []
-    status: TaskStatus = TaskStatus.DRAFT
-    priority: TaskPriority = TaskPriority.MEDIUM
+    assignee_ids: List[uuid.UUID] = []
+    status: TaskStatus = TaskStatus.TO_DO
+    priority: TaskPriority = TaskPriority.P2
     due_date: Optional[date] = None
 
 
@@ -28,14 +33,14 @@ class TaskCreate(TaskBase):
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
+    description: Optional[str] = None
     summary: Optional[str] = None
-    source_email_id: Optional[str] = None
-    conversation_id: Optional[str] = None
-    source_user: Optional[str] = None
+    note: Optional[str] = None
+    source_processed_email_id: Optional[uuid.UUID] = None
+    conversation_ids: Optional[List[str]] = None
+    internet_message_ids: Optional[List[str]] = None
     source_link: Optional[str] = None
-    assignee: Optional[str] = None
-    watchers: Optional[List[str]] = None
-    labels: Optional[List[str]] = None
+    assignee_ids: Optional[List[uuid.UUID]] = None
     status: Optional[TaskStatus] = None
     priority: Optional[TaskPriority] = None
     due_date: Optional[date] = None
@@ -45,5 +50,54 @@ class TaskResponse(TaskBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    labels: List[LabelResponse] = []
     created_at: datetime
     last_update: datetime
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[uuid.UUID] = None
+
+
+class TaskDetailResponse(TaskResponse):
+    notes: List[NoteResponse] = []
+
+
+class TaskListResponse(BaseModel):
+    items: List[TaskResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class TaskDashboardResponse(BaseModel):
+    my_open_tasks: int
+    total: int
+    overdue: int
+    due_today: int
+    due_this_week: int
+    completed_pct: int
+    p0_tasks: int
+
+
+class UserTaskStatsResponse(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    display_name: Optional[str] = None
+    open_tasks: int
+    overdue: int
+    due_this_week: int
+    completed: int
+
+
+class TaskChangeHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    task_id: uuid.UUID
+    task_title: str
+    field_name: str
+    old_value: Optional[Any] = None
+    new_value: Optional[Any] = None
+    source: str
+    updated_by: Optional[uuid.UUID] = None
+    processed_email_id: Optional[uuid.UUID] = None
+    changed_at: datetime
